@@ -1,0 +1,19 @@
+{
+  "name": "sync-ebook-reader",
+  "version": "1.0.0",
+  "description": "Synchronized ebook and audiobook reader",
+  "main": "server.js",
+  "scripts": {
+    "build": "cp public/app.js public/app-compiled.js",
+    "dev": "node server.js",
+    "start": "npm run build && npm run dev"
+  },
+  "dependencies": {
+    "adm-zip": "^0.5.16",
+    "chokidar": "^5.0.0",
+    "compression": "^1.8.1",
+    "express": "^4.22.1",
+    "sqlite": "^5.1.1",
+    "sqlite3": "^5.1.7"
+  }
+}

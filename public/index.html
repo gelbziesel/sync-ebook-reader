@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Sync Reader</title>
+  
+  <!-- ✅ OPTIMIZATION 1: Preload critical font FIRST (eliminates flash!) -->
+  <link rel="preload" href="/fonts/NotoSansJP-VariableFont_wght.ttf" as="font" type="font/ttf" crossorigin>
+  
+  <!-- ✅ OPTIMIZATION 2: Preconnect to CDNs for faster loading -->
+  <link rel="preconnect" href="https://unpkg.com" crossorigin>
+  <link rel="preconnect" href="https://cdn.tailwindcss.com" crossorigin>
+  
+  <!-- Dark mode detection - MUST run first to prevent flash -->
+  <script>
+    (function() {
+      if (window.matchMedia('(prefers-color-scheme: dark)').matches) {
+        document.documentElement.classList.add('dark');
+      }
+    })();
+  </script>
+
+  <!-- ✅ OPTIMIZATION 3: Load React with defer for non-blocking -->
+  <script defer crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script defer crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  
+  <script src="https://cdn.tailwindcss.com"></script>
+  
+  <!-- Configure Tailwind with dark mode -->
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {}
+      }
+    }
+  </script>
+  
+  <!-- Favicon -->
+  <link type="image/png" sizes="16x16" rel="icon" href="icons8-cat-back-view-pastel-glyph-favicons/web/icons8-cat-back-view-pastel-glyph-16.png">
+  <link type="image/png" sizes="32x32" rel="icon" href="icons8-cat-back-view-pastel-glyph-favicons/web/icons8-cat-back-view-pastel-glyph-32.png">
+  <link type="image/png" sizes="96x96" rel="icon" href="icons8-cat-back-view-pastel-glyph-favicons/web/icons8-cat-back-view-pastel-glyph-96.png">
+
+  <!-- External CSS file (NEW!) -->
+  <link rel="stylesheet" href="/reader-styles.css">
+
+  <!-- Minimal inline styles for dark mode -->
+  <style>
+    html.dark {
+      color-scheme: dark;
+    }
+  </style>
+  
+  <!-- Listen for system theme changes -->
+ <script>
+    window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', e => {
+      if (e.matches) {
+        document.documentElement.classList.add('dark');
+      } else {
+        document.documentElement.classList.remove('dark');
+      }
+    });
+  </script>
+  
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+</head>
+<body class="bg-gradient-to-br from-stone-50 to-red-50 dark:from-stone-900 dark:to-stone-800 text-stone-900 dark:text-stone-100">
+  <!-- ✅ OPTIMIZATION 7: Initial loading screen -->
+  <div id="initial-loader">
+    <div class="loader-spinner"></div>
+  </div>
+  
+  <div id="root"></div>
+  
+  <!-- ✅ OPTIMIZATION 8: Remove loader when React loads -->
+  <script>
+    window.addEventListener('DOMContentLoaded', function() {
+      // Wait for React to render, then remove loader
+      setTimeout(function() {
+        const loader = document.getElementById('initial-loader');
+        if (loader) {
+          loader.style.opacity = '0';
+          loader.style.transition = 'opacity 0.3s';
+          setTimeout(function() { loader.remove(); }, 300);
+        }
+      }, 100);
+    });
+  </script>
+  
+  <script type="text/babel" src="/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,171 @@
+/* reader-styles.css - Save as public/reader-styles.css */
+
+/* ===================================
+   FONT IMPORT
+   =================================== */
+@font-face {
+  font-family: 'Noto Sans JP';
+  src: url('/fonts/NotoSansJP-VariableFont_wght.ttf') format('truetype-variations');
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+}
+
+/* ===================================
+   READER CONTENT TYPOGRAPHY
+   =================================== */
+.break-words {
+  font-family: 'Noto Sans JP', Georgia, 'Yu Mincho', 'Hiragino Mincho ProN', serif;
+  line-height: 1.8;
+}
+
+.japanese-optimized {
+  font-family: 'Noto Sans JP', sans-serif;
+  font-feature-settings: "palt";
+  letter-spacing: 0.02em;
+  line-height: 1.8;
+  text-align: justify;
+  text-justify: inter-ideograph;
+}
+
+/* Ruby text (furigana) styling */
+rt {
+  font-family: 'Noto Sans JP', sans-serif;
+  font-size: 0.5em;
+  font-weight: 400;
+}
+
+rb {
+  display: inline-block !important;
+  white-space: normal !important;
+  overflow-wrap: anywhere !important;
+}
+
+/* ===================================
+   SCROLL PREVENTION (when reader open)
+   =================================== */
+body.reader-open, 
+html.reader-open {
+  overflow: hidden !important;
+  height: 100%;
+  width: 100%;
+}
+
+#root.reader-open {
+  height: 100%;
+  width: 100%;
+  overflow: hidden;
+}
+
+/* ===================================
+   BOOKMARK INDICATOR
+   =================================== */
+.sync-segment.bookmarked {
+  box-shadow: 0 0 0 2px #f59e0b !important;
+  border-radius: 16px;
+  position: relative;
+  z-index: 1;
+}
+
+/* Bookmark outline visible on highlighted segments */
+.sync-segment.bg-yellow-200.bookmarked {
+  box-shadow: 0 0 0 2px #f59e0b, inset 0 0 0 1px rgba(255, 255, 255, 0.2) !important;
+}
+
+.sync-segment.dark\:bg-blue-600.bookmarked {
+  box-shadow: 0 0 0 2px #f59e0b, inset 0 0 0 1px rgba(255, 255, 255, 0.2) !important;
+}
+
+/* ===================================
+   DRAG AND DROP
+   =================================== */
+.drag-sortable {
+  transition: all 0.2s ease;
+}
+
+.drag-sortable.dragging {
+  opacity: 0.5;
+  transform: scale(0.95);
+}
+
+.drag-sortable.drag-over {
+  border: 2px dashed #ef4444 !important;
+  background-color: rgba(239, 68, 68, 0.05) !important;
+}
+
+.drag-handle {
+  cursor: grab;
+  transition: color 0.2s ease;
+}
+
+.drag-handle:hover {
+  color: #ef4444;
+}
+
+.drag-handle:active {
+  cursor: grabbing;
+}
+
+/* ===================================
+   PARAGRAPH SPACING (for blank lines)
+   =================================== */
+
+/* Modern selector: make a <p> that only contains a <br> have height */
+p:has(> br:only-child) {
+  min-height: 1em;
+}
+
+/* Firefox-ish pseudo-class for whitespace-only paragraphs */
+p:blank {
+  min-height: 1em;
+}
+
+/* Robust fallback that styles the <br> itself */
+p > br:only-child {
+  display: block;
+  height: 1em;
+  line-height: 1em;
+  margin: 0;
+  content: "";
+}
+
+/* ===================================
+   CUSTOM SCROLLBAR
+   =================================== */
+
+/* Firefox */
+* {
+  scrollbar-color: rgba(156, 163, 175, 0.5) transparent;
+}
+
+/* Chrome/Safari/Edge */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background-color: rgba(156, 163, 175, 0.5);
+  border-radius: 8px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background-color: rgba(156, 163, 175, 0.8);
+}
+
+/* Dark mode scrollbar */
+.dark * {
+  scrollbar-color: rgba(107, 114, 128, 0.5) transparent;
+}
+
+.dark ::-webkit-scrollbar-thumb {
+  background-color: rgba(107, 114, 128, 0.5);
+}
+
+.dark ::-webkit-scrollbar-thumb:hover {
+  background-color: rgba(107, 114, 128, 0.8);
+}
