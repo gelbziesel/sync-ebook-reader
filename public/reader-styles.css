@@ -60,7 +60,7 @@ html.reader-open {
 /* ===================================
    BOOKMARK INDICATOR
    =================================== */
-sync-segment.bookmarked,
+.sync-segment.bookmarked,
 .sync-segment-container.bookmarked {
   box-shadow: 0 0 0 2px #f59e0b !important;
   border-radius: 16px;
@@ -68,10 +68,7 @@ sync-segment.bookmarked,
   z-index: 1;
 }
 
-@keyframes bookmarkPulse {
-  0%, 100% { opacity: 1; transform: scale(1); }
-  50% { opacity: 0.7; transform: scale(1.1); }
-}
+
 
 /* Bookmark outline visible on highlighted segments */
 .sync-segment.bg-yellow-200.bookmarked {
