@@ -117,6 +117,7 @@ async function initDatabase() {
     driver: sqlite3.Database
   });
 
+  // Create tables with IF NOT EXISTS (won't modify existing tables)
   await db.exec(`
     CREATE TABLE IF NOT EXISTS books (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -136,6 +137,14 @@ async function initDatabase() {
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
 
+    CREATE TABLE IF NOT EXISTS series (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL,
+      cover_book_id INTEGER,
+      sort_order INTEGER DEFAULT 0,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
     CREATE TABLE IF NOT EXISTS alignments (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       book_id INTEGER,
@@ -150,6 +159,30 @@ async function initDatabase() {
     CREATE INDEX IF NOT EXISTS idx_book_alignments ON alignments(book_id);
     CREATE INDEX IF NOT EXISTS idx_segment_index ON alignments(book_id, segment_index);
   `);
+
+  // Check if series columns exist and add them if they don't
+  try {
+    const tableInfo = await db.all('PRAGMA table_info(books)');
+    const columnNames = tableInfo.map(col => col.name);
+    
+    if (!columnNames.includes('series_id')) {
+      console.log('📦 Adding series_id column to books table...');
+      await db.exec('ALTER TABLE books ADD COLUMN series_id INTEGER');
+    }
+    
+    if (!columnNames.includes('series_order')) {
+      console.log('📦 Adding series_order column to books table...');
+      await db.exec('ALTER TABLE books ADD COLUMN series_order INTEGER DEFAULT 0');
+    }
+    
+    // Create index after columns are added
+    await db.exec('CREATE INDEX IF NOT EXISTS idx_book_series ON books(series_id)');
+    
+    console.log('✅ Database schema updated successfully');
+  } catch (err) {
+    console.error('Error updating database schema:', err);
+    throw err;
+  }
 }
 
 // ============================================
@@ -522,12 +555,6 @@ async function extractEpubHTML(epubPath) {
         
         content = content.replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, '');
         
-        content = content
-          .replace(/<ruby\b[^>]*>([\s\S]*?)<\/ruby>/gi, (match, inner) => {
-            return inner.replace(/<rt[^>]*>[\s\S]*?<\/rt>/gi, '')
-                       .replace(/<rp[^>]*>[\s\S]*?<\/rp>/gi, '');
-          });
-
         content = content.replace(/src=["']([^"']*)["']/gi, (match, src) => {
           if (src.startsWith('http')) return match;
           let imagePath = src;
@@ -576,24 +603,81 @@ async function extractEpubHTML(epubPath) {
       }
     }
 
-    if (htmlSections.length > 0 && combinedCSS) {
-      htmlSections[0] = `
-        <style>
-          .epub-content {
-            font-size: 24px;
-            line-height: 1.75;
-          }
-          
-          .epub-content p {
-            margin-top: 0px !important;
-            margin-bottom: 0px !important;
-          }
-          
-          ${combinedCSS}
-        </style>
-        ${htmlSections[0]}
-      `;
-    }
+    if (htmlSections.length > 0) {
+  htmlSections[0] = `
+    <style>
+      .epub-content {
+        font-size: 24px !important;
+        line-height: 1.75;
+      }
+
+      /* Support for segments that wrap entire containers (preserves em-sesame, ruby) */
+.sync-segment-container {
+  display: inline;
+  padding: 2px 0;
+}
+
+.sync-segment-container.dark\:bg-blue-600 {
+  background-color: rgb(37 99 235) !important;
+}
+
+.sync-segment-container.bg-yellow-200 {
+  background-color: rgb(254 240 138) !important;
+}
+
+/* Keep em-sesame and ruby styling intact */
+.sync-segment-container .em-sesame {
+  -webkit-text-emphasis-style: filled sesame;
+  text-emphasis-style: filled sesame;
+  -webkit-text-emphasis-position: over right;
+  text-emphasis-position: over right;
+}
+
+.sync-segment-container ruby {
+  ruby-position: over;
+}
+      
+      .epub-content p {
+        margin-top: 0px !important;
+        margin-bottom: 0px !important;
+      }
+      
+      /* âœ… ADD: Support for ruby (furigana) */
+      ruby {
+        ruby-position: over;
+      }
+
+      .em-sesame,
+[class*="emphasis"],
+[class*="sesame"] {
+  -webkit-text-emphasis-style: filled sesame;
+  text-emphasis-style: filled sesame;
+  -webkit-text-emphasis-position: over right;
+  text-emphasis-position: over right;
+  -webkit-text-emphasis-color: currentColor;
+  text-emphasis-color: currentColor;
+}
+      
+      rt {
+        font-size: 0.5em;
+        line-height: 1.2;
+        text-align: center;
+      }
+      
+      rp {
+        display: none; /* Hide fallback parentheses in modern browsers */
+      }
+      
+      /* âœ… ADD: Support for text emphasis (sesame dots, etc) */
+      [style*="text-emphasis"] {
+        text-emphasis-position: over right;
+      }
+      
+      ${combinedCSS}
+    </style>
+    ${htmlSections[0]}
+  `;
+}
     
     console.log(`✅ Extracted ${htmlSections.length} sections`);
     return htmlSections;
@@ -848,9 +932,6 @@ app.get('/api/books/:id/content', async (req, res) => {
     );
 
     console.log(`>>> Sending response: ${processedHtml.length} sections, ${segments.length} segments, processed: ${useProcessedHtml}`);
-
-    // ✅ Set cache headers for content
-    res.set('Cache-Control', 'private, max-age=600'); // 10 minutes
     
     res.json({
       book,
@@ -1015,6 +1096,153 @@ app.post('/api/scan', async (req, res) => {
     res.json({ success: true });
   } catch (err) {
     errorResponse(res, `Failed to scan library: ${err.message}`);
+  }
+});
+
+// ============================================
+// SERIES API ENDPOINTS
+// ============================================
+
+app.get('/api/series', async (req, res) => {
+  try {
+    const series = await db.all(`
+      SELECT s.*, 
+             COUNT(b.id) as book_count,
+             b.cover_data as cover
+      FROM series s
+      LEFT JOIN books b ON b.series_id = s.id
+      LEFT JOIN books cover_book ON cover_book.id = s.cover_book_id
+      GROUP BY s.id
+      ORDER BY s.sort_order ASC, s.name ASC
+    `);
+    
+    // Get cover from cover_book_id
+    for (const s of series) {
+      if (s.cover_book_id) {
+        const coverBook = await db.get('SELECT cover_data FROM books WHERE id = ?', s.cover_book_id);
+        s.cover = coverBook?.cover_data || null;
+      }
+    }
+    
+    res.json(series);
+  } catch (err) {
+    errorResponse(res, `Failed to fetch series: ${err.message}`);
+  }
+});
+
+app.post('/api/series', async (req, res) => {
+  try {
+    const { name, coverBookId } = req.body;
+    
+    if (!name) {
+      return errorResponse(res, 'Series name is required', 400);
+    }
+    
+    const maxSort = await db.get('SELECT MAX(sort_order) as max FROM series');
+    const sortOrder = (maxSort?.max || 0) + 1;
+    
+    const result = await db.run(
+      'INSERT INTO series (name, cover_book_id, sort_order) VALUES (?, ?, ?)',
+      [name, coverBookId || null, sortOrder]
+    );
+    
+    res.json({ success: true, id: result.lastID });
+  } catch (err) {
+    errorResponse(res, `Failed to create series: ${err.message}`);
+  }
+});
+
+app.put('/api/series/:id', async (req, res) => {
+  try {
+    const { name, coverBookId } = req.body;
+    
+    await db.run(
+      'UPDATE series SET name = ?, cover_book_id = ? WHERE id = ?',
+      [name, coverBookId, req.params.id]
+    );
+    
+    res.json({ success: true });
+  } catch (err) {
+    errorResponse(res, `Failed to update series: ${err.message}`);
+  }
+});
+
+app.delete('/api/series/:id', async (req, res) => {
+  try {
+    // Remove series_id from all books in this series
+    await db.run('UPDATE books SET series_id = NULL, series_order = 0 WHERE series_id = ?', req.params.id);
+    
+    // Delete the series
+    await db.run('DELETE FROM series WHERE id = ?', req.params.id);
+    
+    res.json({ success: true });
+  } catch (err) {
+    errorResponse(res, `Failed to delete series: ${err.message}`);
+  }
+});
+
+app.get('/api/series/:id/books', async (req, res) => {
+  try {
+    const books = await db.all(`
+      SELECT * FROM books 
+      WHERE series_id = ? 
+      ORDER BY series_order ASC, title ASC
+    `, req.params.id);
+    
+    res.json(books);
+  } catch (err) {
+    errorResponse(res, `Failed to fetch series books: ${err.message}`);
+  }
+});
+
+app.post('/api/series/:id/books', async (req, res) => {
+  try {
+    const { bookIds } = req.body;
+    
+    await withTransaction(async () => {
+      for (let i = 0; i < bookIds.length; i++) {
+        await db.run(
+          'UPDATE books SET series_id = ?, series_order = ? WHERE id = ?',
+          [req.params.id, i, bookIds[i]]
+        );
+      }
+    });
+    
+    res.json({ success: true });
+  } catch (err) {
+    errorResponse(res, `Failed to add books to series: ${err.message}`);
+  }
+});
+
+app.delete('/api/series/:seriesId/books/:bookId', async (req, res) => {
+  try {
+    await db.run(
+      'UPDATE books SET series_id = NULL, series_order = 0 WHERE id = ?',
+      [req.params.bookId]
+    );
+    
+    res.json({ success: true });
+  } catch (err) {
+    errorResponse(res, `Failed to remove book from series: ${err.message}`);
+  }
+});
+
+app.post('/api/series/sort', async (req, res) => {
+  try {
+    const { sortedSeries } = req.body;
+    
+    await withTransaction(async () => {
+      for (const series of sortedSeries) {
+        await db.run(
+          'UPDATE series SET sort_order = ? WHERE id = ?',
+          [series.sort_order, series.id]
+        );
+      }
+    });
+    
+    res.json({ success: true });
+  } catch (err) {
+    errorResponse(res, `Failed to update series order: ${err.message}`);
   }
 });
 

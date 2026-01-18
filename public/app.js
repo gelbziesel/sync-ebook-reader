@@ -19,6 +19,13 @@ const Home = ({ className }) => <Icon className={className} d="M3 9l9-7 9 7v11a2
 const Target = ({ className }) => <Icon className={className} d="M22 12A10 10 0 1 1 12 2a10 10 0 0 1 10 10z M12 6a6 6 0 1 0 0 12 6 6 0 0 0 0-12z M12 10a2 2 0 1 0 0 4 2 2 0 0 0 0-4z" />;
 const DragHandle = ({ className }) => <Icon className={className} d="M4 8h16M4 16h16" />;
 const Bookmark = ({ className }) => <Icon className={className} d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z" />;
+const Folder = ({ className }) => <Icon className={className} d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />;
+const Plus = ({ className }) => <Icon className={className} d="M12 5v14m-7-7h14" />;
+const Edit = ({ className }) => <Icon className={className} d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7 M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />;
+const Trash = ({ className }) => <Icon className={className} d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2 M10 11v6 M14 11v6" />;
+const ChevronDown = ({ className }) => <Icon className={className} d="M6 9l6 6 6-6" />;
+const ChevronRight = ({ className }) => <Icon className={className} d="M9 18l6-6-6-6" />;
+
 
 // ============================================
 // CONSTANTS
@@ -186,10 +193,11 @@ const scrollToSegment = (segmentIndex, options = {}) => {
   } = options;
 
   // Remove highlighting from all segments
-  document.querySelectorAll('.sync-segment').forEach(el => {
+document.querySelectorAll('.sync-segment, .sync-segment-container').forEach(el => {
     el.classList.remove('dark:bg-blue-600', 'bg-yellow-200', 'text-black', 'dark:text-white');
   });
-
+  
+  // Try both selectors
   const element = document.querySelector(`[data-segment-id="${segmentIndex}"]`);
   if (!element) return;
 
@@ -199,7 +207,6 @@ const scrollToSegment = (segmentIndex, options = {}) => {
   if (!shouldScroll) return;
 
   if (isMobile) {
-    // Mobile: Only scroll if element is not visible
     const elementRect = element.getBoundingClientRect();
     
     const isVisible = 
@@ -214,7 +221,6 @@ const scrollToSegment = (segmentIndex, options = {}) => {
       });
     }
   } else {
-    // Desktop: Smooth scroll with configurable behavior
     element.scrollIntoView({ 
       behavior: instant ? 'auto' : 'smooth', 
       block,
@@ -222,7 +228,6 @@ const scrollToSegment = (segmentIndex, options = {}) => {
     });
   }
 };
-
 // ============================================
 // DRAG AND DROP BOOKS COMPONENT
 // ============================================
@@ -236,15 +241,96 @@ const scrollToSegment = (segmentIndex, options = {}) => {
  * @param {Function} props.onBookSelect - Callback when book is selected
  * @returns {JSX.Element}
  */
-const DragSortableBooks = ({ books, onBooksReorder, onBookSelect }) => {
-  const [localBooks, setLocalBooks] = useState(books);
+
+// SeriesCard component
+const SeriesCard = ({ series, onOpenBook, onShowBooks, onEdit, onDelete, index }) => {
+  return (
+    <div className="bg-white dark:bg-stone-800 rounded-xl shadow-sm border border-stone-200 dark:border-stone-700 hover:border-blue-300 dark:hover:border-blue-400 transition-all duration-300 group relative">
+      {/* Main card - clicks open cover book */}
+      <div 
+        className="cursor-pointer"
+        onClick={() => onOpenBook(series.cover_book_id)}
+      >
+        <div className="relative w-full aspect-[3/4] bg-gradient-to-br from-blue-500 to-blue-600 dark:from-blue-600 dark:to-blue-700 rounded-xl overflow-hidden">
+          {series.cover ? (
+            <img 
+              src={series.cover} 
+              alt={`${series.name} cover`}
+              className="w-full h-full object-cover"
+            />
+          ) : (
+            <div className="w-full h-full flex items-center justify-center">
+              <Folder className="w-16 h-16 text-white opacity-50" />
+            </div>
+          )}
+          
+          <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300">
+            <div className="absolute bottom-0 left-0 right-0 p-4">
+              <h3 className="text-white font-semibold text-sm leading-tight mb-1 line-clamp-2">
+                {series.name}
+              </h3>
+              <p className="text-stone-200 text-xs">
+                {series.book_count} {series.book_count === 1 ? 'book' : 'books'}
+              </p>
+            </div>
+          </div>
+          
+          {/* Control buttons */}
+          <div className="absolute top-2 right-2 flex gap-1">
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                onShowBooks(series);
+              }}
+              className="p-2 bg-black/50 hover:bg-black/70 text-white rounded-full transition-colors"
+              title="View all books in series"
+            >
+              <BookOpen className="w-4 h-4" />
+            </button>
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                onEdit(series);
+              }}
+              className="p-2 bg-black/50 hover:bg-black/70 text-white rounded-full transition-colors"
+              title="Edit series"
+            >
+              <Edit className="w-4 h-4" />
+            </button>
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                onDelete(series.id);
+              }}
+              className="p-2 bg-black/50 hover:bg-black/70 text-white rounded-full transition-colors"
+              title="Delete series"
+            >
+              <Trash className="w-4 h-4" />
+            </button>
+          </div>
+          
+          {/* Series badge */}
+          <div className="absolute top-2 left-2 bg-blue-500 text-white px-2 py-1 rounded-full text-xs font-medium shadow-sm flex items-center gap-1">
+            <Folder className="w-3 h-3" />
+            <span>Series</span>
+          </div>
+        </div>
+      </div>
+      
+    </div>
+  );
+};
+
+const DragSortableGrid = ({ items, onItemsReorder, onOpenBook, onShowSeriesBooks, onEditSeries, onDeleteSeries }) => {
+  const [localItems, setLocalItems] = useState(items);
   const [draggingId, setDraggingId] = useState(null);
+  const [draggingType, setDraggingType] = useState(null);
   const [dragOverId, setDragOverId] = useState(null);
   const [isLargeScreen, setIsLargeScreen] = useState(window.innerWidth >= MOBILE_BREAKPOINT);
   
   useEffect(() => {
-    setLocalBooks(books);
-  }, [books]);
+    setLocalItems(items);
+  }, [items]);
 
   useEffect(() => {
     const handleResize = () => {
@@ -255,17 +341,20 @@ const DragSortableBooks = ({ books, onBooksReorder, onBookSelect }) => {
     return () => window.removeEventListener('resize', handleResize);
   }, []);
 
-  const handleDragStart = (e, bookId) => {
+  const handleDragStart = (e, item) => {
     if (!isLargeScreen) return;
-    e.dataTransfer.setData('text/plain', bookId.toString());
-    setDraggingId(bookId);
+    const itemId = `${item.type}-${item.data.id}`;
+    e.dataTransfer.setData('text/plain', itemId);
+    setDraggingId(item.data.id);
+    setDraggingType(item.type);
     e.currentTarget.classList.add('dragging');
   };
 
-  const handleDragOver = (e, bookId) => {
+  const handleDragOver = (e, item) => {
     e.preventDefault();
-    if (bookId !== draggingId) {
-      setDragOverId(bookId);
+    const itemId = item.data.id;
+    if (itemId !== draggingId) {
+      setDragOverId(itemId);
     }
   };
 
@@ -274,107 +363,138 @@ const DragSortableBooks = ({ books, onBooksReorder, onBookSelect }) => {
     setDragOverId(null);
   };
 
-  const handleDrop = (e, targetBookId) => {
+  const handleDrop = (e, targetItem) => {
     e.preventDefault();
-    const sourceBookId = parseInt(e.dataTransfer.getData('text/plain'));
+    const draggedItemId = e.dataTransfer.getData('text/plain');
+    const [draggedType, draggedId] = draggedItemId.split('-');
     
-    if (sourceBookId !== targetBookId) {
-      const sourceIndex = localBooks.findIndex(b => b.id === sourceBookId);
-      const targetIndex = localBooks.findIndex(b => b.id === targetBookId);
+    const sourceIndex = localItems.findIndex(item => 
+      item.type === draggedType && item.data.id === parseInt(draggedId)
+    );
+    const targetIndex = localItems.findIndex(item => 
+      item.type === targetItem.type && item.data.id === targetItem.data.id
+    );
+    
+    if (sourceIndex !== -1 && targetIndex !== -1 && sourceIndex !== targetIndex) {
+      const newItems = [...localItems];
+      const [movedItem] = newItems.splice(sourceIndex, 1);
+      newItems.splice(targetIndex, 0, movedItem);
       
-      if (sourceIndex !== -1 && targetIndex !== -1) {
-        const newBooks = [...localBooks];
-        const [movedBook] = newBooks.splice(sourceIndex, 1);
-        newBooks.splice(targetIndex, 0, movedBook);
-        
-        const booksWithNewOrder = newBooks.map((book, index) => ({
-          ...book,
-          sort_order: index
-        }));
-        
-        setLocalBooks(booksWithNewOrder);
-        onBooksReorder(booksWithNewOrder);
-      }
+      const itemsWithNewOrder = newItems.map((item, index) => ({
+        ...item,
+        sort_order: index
+      }));
+      
+      setLocalItems(itemsWithNewOrder);
+      onItemsReorder(itemsWithNewOrder);
     }
     
     setDraggingId(null);
+    setDraggingType(null);
     setDragOverId(null);
   };
 
   const handleDragEnd = (e) => {
     setDraggingId(null);
+    setDraggingType(null);
     setDragOverId(null);
     e.currentTarget.classList.remove('dragging');
   };
 
   return (
     <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-6">
-      {localBooks.map((book, index) => (
-        <div
-          key={book.id}
-          draggable={isLargeScreen}
-          onDragStart={(e) => handleDragStart(e, book.id)}
-          onDragOver={(e) => handleDragOver(e, book.id)}
-          onDragLeave={handleDragLeave}
-          onDrop={(e) => handleDrop(e, book.id)}
-          onDragEnd={handleDragEnd}
-          className={`
-            drag-sortable bg-white dark:bg-stone-800 rounded-xl cursor-pointer shadow-sm hover:shadow-md transition-all duration-300 border border-stone-200 dark:border-stone-700 hover:border-red-300 dark:hover:border-red-400 group relative
-            ${draggingId === book.id ? 'dragging' : ''}
-            ${dragOverId === book.id ? 'drag-over' : ''}
-          `}
-          onClick={() => onBookSelect(book.id)}
-        >
-          {isLargeScreen && (
-            <div 
-              className="absolute top-2 left-2 z-20 drag-handle p-1 rounded bg-white/80 dark:bg-stone-800/80 opacity-0 group-hover:opacity-100 transition-opacity"
-              onClick={(e) => e.stopPropagation()}
+      {localItems.map((item, index) => {
+        const isDragging = draggingId === item.data.id && draggingType === item.type;
+        const isDragOver = dragOverId === item.data.id;
+        
+        if (item.type === 'series') {
+          return (
+            <div
+              key={`series-${item.data.id}`}
+              draggable={isLargeScreen}
+              onDragStart={(e) => handleDragStart(e, item)}
+              onDragOver={(e) => handleDragOver(e, item)}
+              onDragLeave={handleDragLeave}
+              onDrop={(e) => handleDrop(e, item)}
+              onDragEnd={handleDragEnd}
+              className={`
+                drag-sortable
+                ${isDragging ? 'dragging' : ''}
+                ${isDragOver ? 'drag-over' : ''}
+              `}
             >
-              <DragHandle className="w-4 h-4 text-stone-400" />
-            </div>
-          )}
-          
-          <div className="relative w-full aspect-[3/4] bg-gradient-to-br from-red-500 to-red-600 dark:from-red-600 dark:to-red-700 rounded-xl overflow-hidden">
-            {book.cover_data ? (
-              <img 
-                src={book.cover_data} 
-                alt={`${book.title} cover`}
-                className="w-full h-full object-cover"
-                loading="lazy"
+              <SeriesCard
+                series={item.data}
+                index={index}
+                onOpenBook={(bookId) => {
+                  if (bookId) onOpenBook(bookId);
+                }}
+                onShowBooks={onShowSeriesBooks}
+                onEdit={onEditSeries}
+                onDelete={onDeleteSeries}
+                isLargeScreen={isLargeScreen}
               />
-            ) : (
-              <div className="w-full h-full flex items-center justify-center">
-                <BookOpen className="w-12 h-12 text-white opacity-50" />
-              </div>
-            )}
-            
-            <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300">
-              <div className="absolute bottom-0 left-0 right-0 p-4">
-                <h3 className="text-white font-semibold text-sm leading-tight mb-1 line-clamp-2">
-                  {book.title}
-                </h3>
-                <p className="text-stone-200 text-xs line-clamp-1">
-                  {book.author}
-                </p>
-              </div>
             </div>
-            
-            <div className="absolute top-2 right-2 bg-green-500 text-white px-2 py-1 rounded-full text-xs font-medium shadow-sm">
-              <div className="flex items-center gap-1">
-                <Volume2 className="w-3 h-3" />
-                <span>Audio</span>
+          );
+        } else {
+          return (
+            <div
+              key={`book-${item.data.id}`}
+              draggable={isLargeScreen}
+              onDragStart={(e) => handleDragStart(e, item)}
+              onDragOver={(e) => handleDragOver(e, item)}
+              onDragLeave={handleDragLeave}
+              onDrop={(e) => handleDrop(e, item)}
+              onDragEnd={handleDragEnd}
+              className={`
+                drag-sortable bg-white dark:bg-stone-800 rounded-xl cursor-pointer shadow-sm hover:shadow-md transition-all duration-300 border border-stone-200 dark:border-stone-700 hover:border-red-300 dark:hover:border-red-400 group relative
+                ${isDragging ? 'dragging' : ''}
+                ${isDragOver ? 'drag-over' : ''}
+              `}
+              onClick={() => onOpenBook(item.data.id)}
+            >
+              <div className="relative w-full aspect-[3/4] bg-gradient-to-br from-red-500 to-red-600 dark:from-red-600 dark:to-red-700 rounded-xl overflow-hidden">
+                {item.data.cover_data ? (
+                  <img 
+                    src={item.data.cover_data} 
+                    alt={`${item.data.title} cover`}
+                    className="w-full h-full object-cover"
+                    loading="lazy"
+                  />
+                ) : (
+                  <div className="w-full h-full flex items-center justify-center">
+                    <BookOpen className="w-12 h-12 text-white opacity-50" />
+                  </div>
+                )}
+                
+                <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300">
+                  <div className="absolute bottom-0 left-0 right-0 p-4">
+                    <h3 className="text-white font-semibold text-sm leading-tight mb-1 line-clamp-2">
+                      {item.data.title}
+                    </h3>
+                    <p className="text-stone-200 text-xs line-clamp-1">
+                      {item.data.author}
+                    </p>
+                  </div>
+                </div>
+                
+                <div className="absolute top-2 right-2 bg-green-500 text-white px-2 py-1 rounded-full text-xs font-medium shadow-sm">
+                  <div className="flex items-center gap-1">
+                    <Volume2 className="w-3 h-3" />
+                    <span>Audio</span>
+                  </div>
+                </div>
               </div>
+              
+            
             </div>
-          </div>
-          
-          <div className="absolute bottom-2 left-2 bg-black/50 text-white text-xs px-2 py-1 rounded">
-            #{index + 1}
-          </div>
-        </div>
-      ))}
+          );
+        }
+      })}
     </div>
   );
 };
+
 
 // ============================================
 // MAIN READER COMPONENT
@@ -411,7 +531,14 @@ const SyncEbookReader = () => {
   const [libraryPath, setLibraryPath] = useState('');
 const [showPathEditor, setShowPathEditor] = useState(false);
 const [editingPath, setEditingPath] = useState('');
-  
+const [series, setSeries] = useState([]);
+const [expandedSeries, setExpandedSeries] = useState(new Set());
+const [showSeriesModal, setShowSeriesModal] = useState(false);
+const [editingSeries, setEditingSeries] = useState(null);
+const [selectedBooksForSeries, setSelectedBooksForSeries] = useState([]);
+const [showSeriesBooksModal, setShowSeriesBooksModal] = useState(false);
+const [viewingSeriesBooks, setViewingSeriesBooks] = useState(null);
+
   // Refs
   const audioRef = useRef(null);
   const contentRef = useRef(null);
@@ -448,6 +575,22 @@ const [editingPath, setEditingPath] = useState('');
   
   loadConfig();
 }, []);
+
+useEffect(() => {
+  const loadSeries = async () => {
+    try {
+      const response = await fetch('/api/series');
+      const data = await response.json();
+      setSeries(data);
+    } catch (err) {
+      console.error('Error loading series:', err);
+    }
+  };
+  
+  if (booksLoaded) {
+    loadSeries();
+  }
+}, [booksLoaded]);
   
   // Apply reader-open class when book is loaded
   useEffect(() => {
@@ -567,6 +710,311 @@ const [editingPath, setEditingPath] = useState('');
     window.addEventListener('keydown', handleKeyPress);
     return () => window.removeEventListener('keydown', handleKeyPress);
   }, []);
+
+
+  const createSeries = async (name, coverBookId) => {
+  try {
+    const response = await fetch('/api/series', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name, coverBookId })
+    });
+    
+    const result = await response.json();
+    
+    if (result.success) {
+      // Reload series
+      const seriesResponse = await fetch('/api/series');
+      const seriesData = await seriesResponse.json();
+      setSeries(seriesData);
+      
+      return result.id;
+    }
+  } catch (err) {
+    console.error('Error creating series:', err);
+  }
+};
+
+const updateSeries = async (seriesId, name, coverBookId) => {
+  try {
+    await fetch(`/api/series/${seriesId}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name, coverBookId })
+    });
+    
+    // Reload series
+    const response = await fetch('/api/series');
+    const data = await response.json();
+    setSeries(data);
+  } catch (err) {
+    console.error('Error updating series:', err);
+  }
+};
+
+const deleteSeries = async (seriesId) => {
+  if (!confirm('Remove this series? (Books will not be deleted)')) return;
+  
+  try {
+    await fetch(`/api/series/${seriesId}`, { method: 'DELETE' });
+    
+    // Reload data
+    const [seriesResponse, booksResponse] = await Promise.all([
+      fetch('/api/series'),
+      fetch('/api/books')
+    ]);
+    
+    setSeries(await seriesResponse.json());
+    setBooks(await booksResponse.json());
+  } catch (err) {
+    console.error('Error deleting series:', err);
+  }
+};
+
+const addBooksToSeries = async (seriesId, bookIds) => {
+  try {
+    await fetch(`/api/series/${seriesId}/books`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ bookIds })
+    });
+    
+    // Reload data
+    const [seriesResponse, booksResponse] = await Promise.all([
+      fetch('/api/series'),
+      fetch('/api/books')
+    ]);
+    
+    setSeries(await seriesResponse.json());
+    setBooks(await booksResponse.json());
+  } catch (err) {
+    console.error('Error adding books to series:', err);
+  }
+};
+
+const removeBookFromSeries = async (seriesId, bookId) => {
+  try {
+    await fetch(`/api/series/${seriesId}/books/${bookId}`, { method: 'DELETE' });
+    
+    // Reload data
+    const [seriesResponse, booksResponse] = await Promise.all([
+      fetch('/api/series'),
+      fetch('/api/books')
+    ]);
+    
+    setSeries(await seriesResponse.json());
+    setBooks(await booksResponse.json());
+  } catch (err) {
+    console.error('Error removing book from series:', err);
+  }
+};
+
+
+
+// SeriesBooksModal - shows all books in a series
+const SeriesBooksModal = ({ series, books, onClose, onSelectBook }) => {
+  if (!series) return null;
+  
+  return (
+    <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+      <div className="bg-white dark:bg-stone-800 rounded-2xl shadow-2xl max-w-6xl w-full max-h-[90vh] overflow-hidden border border-stone-200 dark:border-stone-700">
+        <div className="p-6 border-b border-stone-200 dark:border-stone-700">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <Folder className="w-8 h-8 text-blue-600 dark:text-blue-400" />
+              <h2 className="text-2xl font-bold text-stone-900 dark:text-stone-100">
+                {series.name}
+              </h2>
+              <span className="text-stone-500 dark:text-stone-400">
+                ({books.length} {books.length === 1 ? 'book' : 'books'})
+              </span>
+            </div>
+            <button
+              onClick={onClose}
+              className="text-stone-400 hover:text-stone-600 dark:hover:text-stone-200"
+            >
+              <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+          </div>
+        </div>
+        
+        <div className="p-6 overflow-y-auto max-h-[calc(90vh-100px)]">
+          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-6">
+            {books.map((book, index) => (
+              <div
+                key={book.id}
+                onClick={() => {
+                  onSelectBook(book.id);
+                  onClose();
+                }}
+                className="bg-white dark:bg-stone-800 rounded-xl cursor-pointer shadow-sm hover:shadow-md transition-all duration-300 border border-stone-200 dark:border-stone-700 hover:border-red-300 dark:hover:border-red-400 group relative"
+              >
+                <div className="relative w-full aspect-[3/4] bg-gradient-to-br from-red-500 to-red-600 dark:from-red-600 dark:to-red-700 rounded-xl overflow-hidden">
+                  {book.cover_data ? (
+                    <img 
+                      src={book.cover_data} 
+                      alt={`${book.title} cover`}
+                      className="w-full h-full object-cover"
+                      loading="lazy"
+                    />
+                  ) : (
+                    <div className="w-full h-full flex items-center justify-center">
+                      <BookOpen className="w-12 h-12 text-white opacity-50" />
+                    </div>
+                  )}
+                  
+                  <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300">
+                    <div className="absolute bottom-0 left-0 right-0 p-4">
+                      <h3 className="text-white font-semibold text-sm leading-tight mb-1 line-clamp-2">
+                        {book.title}
+                      </h3>
+                      <p className="text-stone-200 text-xs line-clamp-1">
+                        {book.author}
+                      </p>
+                    </div>
+                  </div>
+                  
+                  <div className="absolute top-2 right-2 bg-green-500 text-white px-2 py-1 rounded-full text-xs font-medium shadow-sm">
+                    <div className="flex items-center gap-1">
+                      <Volume2 className="w-3 h-3" />
+                      <span>Audio</span>
+                    </div>
+                  </div>
+                </div>
+                
+
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// SeriesModal component
+const SeriesModal = ({ onClose, onSave, series, books }) => {
+  const [name, setName] = useState(series?.name || '');
+  const [coverBookId, setCoverBookId] = useState(series?.cover_book_id || null);
+  const [selectedBooks, setSelectedBooks] = useState([]);
+  
+  useEffect(() => {
+    if (series?.id) {
+      fetch(`/api/series/${series.id}/books`)
+        .then(res => res.json())
+        .then(data => setSelectedBooks(data.map(b => b.id)))
+        .catch(console.error);
+    }
+  }, [series]);
+  
+  const handleSave = () => {
+    if (!name.trim()) {
+      alert('Please enter a series name');
+      return;
+    }
+    
+    onSave(name, coverBookId, selectedBooks);
+  };
+  
+  const availableBooks = books.filter(b => !b.series_id || b.series_id === series?.id);
+  
+  return (
+    <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+      <div className="bg-white dark:bg-stone-800 rounded-2xl shadow-2xl max-w-4xl w-full max-h-[90vh] overflow-hidden border border-stone-200 dark:border-stone-700">
+        <div className="p-6 border-b border-stone-200 dark:border-stone-700">
+          <div className="flex items-center justify-between">
+            <h2 className="text-2xl font-bold text-stone-900 dark:text-stone-100">
+              {series ? 'Edit Series' : 'Create New Series'}
+            </h2>
+            <button
+              onClick={onClose}
+              className="text-stone-400 hover:text-stone-600 dark:hover:text-stone-200"
+            >
+              <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+          </div>
+        </div>
+        
+        <div className="p-6 overflow-y-auto max-h-[calc(90vh-140px)]">
+          <div className="space-y-6">
+            <div>
+              <label className="block text-sm font-medium text-stone-700 dark:text-stone-300 mb-2">
+                Series Name
+              </label>
+              <input
+                type="text"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                className="w-full px-4 py-3 bg-white dark:bg-stone-900 border border-stone-300 dark:border-stone-600 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-red-500 text-stone-900 dark:text-stone-100"
+                placeholder="Enter series name..."
+              />
+            </div>
+            
+            <div>
+              <label className="block text-sm font-medium text-stone-700 dark:text-stone-300 mb-2">
+                Cover Image (select a book)
+              </label>
+              <select
+                value={coverBookId || ''}
+                onChange={(e) => setCoverBookId(e.target.value ? parseInt(e.target.value) : null)}
+                className="w-full px-4 py-3 bg-white dark:bg-stone-900 border border-stone-300 dark:border-stone-600 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-red-500 text-stone-900 dark:text-stone-100"
+              >
+                <option value="">No cover</option>
+                {availableBooks.map(book => (
+                  <option key={book.id} value={book.id}>{book.title}</option>
+                ))}
+              </select>
+            </div>
+            
+            <div>
+              <label className="block text-sm font-medium text-stone-700 dark:text-stone-300 mb-2">
+                Books in Series
+              </label>
+              <div className="border border-stone-300 dark:border-stone-600 rounded-lg p-4 max-h-64 overflow-y-auto">
+                {availableBooks.map(book => (
+                  <label key={book.id} className="flex items-center gap-3 p-2 hover:bg-stone-100 dark:hover:bg-stone-700 rounded cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={selectedBooks.includes(book.id)}
+                      onChange={(e) => {
+                        if (e.target.checked) {
+                          setSelectedBooks([...selectedBooks, book.id]);
+                        } else {
+                          setSelectedBooks(selectedBooks.filter(id => id !== book.id));
+                        }
+                      }}
+                      className="w-4 h-4 text-red-500 focus:ring-red-500 rounded"
+                    />
+                    <span className="text-stone-900 dark:text-stone-100">{book.title}</span>
+                  </label>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+        
+        <div className="p-6 border-t border-stone-200 dark:border-stone-700 flex gap-3 justify-end">
+          <button
+            onClick={onClose}
+            className="px-6 py-2 bg-stone-200 dark:bg-stone-700 hover:bg-stone-300 dark:hover:bg-stone-600 text-stone-900 dark:text-stone-100 rounded-lg transition-colors"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={handleSave}
+            className="px-6 py-2 bg-red-500 hover:bg-red-600 text-white rounded-lg transition-colors shadow-sm"
+          >
+            {series ? 'Save Changes' : 'Create Series'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
 
   // ============================================
   // BOOK LOADING HELPERS
@@ -782,39 +1230,54 @@ const loadBookWithoutCache = async (data) => {
   /**
    * Save current playback position as bookmark
    */
-  const saveBookmark = async () => {
-    if (currentSegmentIndex === -1 || !currentBook) return;
+const saveBookmark = async () => {
+  if (currentSegmentIndex === -1 || !currentBook) return;
+  
+  try {
+    await fetch(`/api/books/${currentBook.id}/bookmark`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        segmentIndex: currentSegmentIndex,
+        time: currentTime
+      })
+    });
     
-    try {
-      await fetch(`/api/books/${currentBook.id}/bookmark`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          segmentIndex: currentSegmentIndex,
-          time: currentTime
-        })
-      });
-      
-      document.querySelectorAll('.sync-segment.bookmarked').forEach(el => {
-        el.classList.remove('bookmarked');
-      });
-      
-      const currentElement = document.querySelector(`[data-segment-id="${currentSegmentIndex}"]`);
-      if (currentElement) {
-        currentElement.classList.add('bookmarked');
-      }
-      
-      window.bookmarkSegmentIndex = currentSegmentIndex;
-      
-      setBookmarkSegment(currentSegmentIndex);
-      setShowBookmarkToast(true);
-      setTimeout(() => setShowBookmarkToast(false), 2000);
-      
-      console.log('Bookmark saved at segment', currentSegmentIndex);
-    } catch (err) {
-      console.error('Error saving bookmark:', err);
+    // Update both state AND cache
+    const updatedBooks = books.map(b => 
+      b.id === currentBook.id 
+        ? { ...b, bookmark_segment: currentSegmentIndex, bookmark_time: currentTime }
+        : b
+    );
+    setBooks(updatedBooks);
+    
+    // Update sessionStorage cache
+    const booksMetadata = updatedBooks.map(({ cover_data, ...book }) => book);
+    StorageManager.set('cachedBooks', booksMetadata);
+    
+    // Update current book object
+    setCurrentBook({ ...currentBook, bookmark_segment: currentSegmentIndex, bookmark_time: currentTime });
+    
+    document.querySelectorAll('.sync-segment.bookmarked').forEach(el => {
+      el.classList.remove('bookmarked');
+    });
+    
+    const currentElement = document.querySelector(`[data-segment-id="${currentSegmentIndex}"]`);
+    if (currentElement) {
+      currentElement.classList.add('bookmarked');
     }
-  };
+    
+    window.bookmarkSegmentIndex = currentSegmentIndex;
+    
+    setBookmarkSegment(currentSegmentIndex);
+    setShowBookmarkToast(true);
+    setTimeout(() => setShowBookmarkToast(false), 2000);
+    
+    console.log('Bookmark saved at segment', currentSegmentIndex);
+  } catch (err) {
+    console.error('Error saving bookmark:', err);
+  }
+};
 
   /**
    * Cache processed HTML to server for instant future loads
@@ -843,46 +1306,47 @@ const loadBookWithoutCache = async (data) => {
    * Attach click handlers to pre-rendered segment spans
    * @param {Segment[]} segmentsData - Array of segment data
    */
-  const attachClickHandlers = (segmentsData) => {
-    const contentDiv = contentRef.current;
-    if (!contentDiv) return;
-    
-    const segmentSpans = contentDiv.querySelectorAll('.sync-segment[data-segment-id]');
-    console.log(`Attaching handlers to ${segmentSpans.length} pre-rendered segments...`);
-    
-    segmentSpans.forEach(span => {
-      span.onclick = (e) => {
-        e.stopPropagation();
-        if (isMobile) {
-          console.log(`Mobile tap on segment - ignoring (no audio/scroll)`);
-          return;
-        }
-        const idx = parseInt(span.getAttribute('data-segment-id'));
-        const startTime = parseFloat(span.getAttribute('data-segment-start')) || 0;
+const attachClickHandlers = (segmentsData) => {
+  const contentDiv = contentRef.current;
+  if (!contentDiv) return;
+  
+  // ✅ FIXED: Handle both regular segments AND container segments
+  const segmentElements = contentDiv.querySelectorAll('[data-segment-id]');
+  console.log(`Attaching handlers to ${segmentElements.length} pre-rendered segments...`);
+  
+  segmentElements.forEach(element => {
+    element.onclick = (e) => {
+      e.stopPropagation();
+      if (isMobile) {
+        console.log(`Mobile tap on segment - ignoring (no audio/scroll)`);
+        return;
+      }
+      const idx = parseInt(element.getAttribute('data-segment-id'));
+      const startTime = parseFloat(element.getAttribute('data-segment-start')) || 0;
+      
+      console.log(`Clicked segment ${idx}, jumping to time ${startTime}`);
+      
+      if (audioRef.current) {
+        audioRef.current.currentTime = startTime;
+        setCurrentSegmentIndex(idx);
         
-        console.log(`Clicked segment ${idx}, jumping to time ${startTime}`);
+        scrollToSegment(idx, {
+          shouldScroll: true,
+          instant: false,
+          block: 'center',
+          isMobile,
+          contentRef
+        });
         
-        if (audioRef.current) {
-          audioRef.current.currentTime = startTime;
-          setCurrentSegmentIndex(idx);
-          
-          scrollToSegment(idx, {
-            shouldScroll: true,
-            instant: false,
-            block: 'center',
-            isMobile,
-            contentRef
-          });
-          
-          audioRef.current.play().catch(err => {
-            console.error('Playback failed:', err);
-            setIsPlaying(false);
-          });
-          setIsPlaying(true);
-        }
-      };
-    });
-  };
+        audioRef.current.play().catch(err => {
+          console.error('Playback failed:', err);
+          setIsPlaying(false);
+        });
+        setIsPlaying(true);
+      }
+    };
+  });
+};
 
   /**
    * Wrap segment text in a clickable span element for audio synchronization
@@ -892,131 +1356,47 @@ const loadBookWithoutCache = async (data) => {
    * @param {number|null} segmentStart - Start time in audio (seconds), optional
    * @returns {HTMLSpanElement|null} The created span element, or null if wrapping failed
    */
-  const wrapSegmentInElement = (element, segmentText, segmentIndex, segmentStart = null) => {
-    const elementText = getTextWithoutFurigana(element);
+
+
+const wrapSegmentInElement = (element, segmentText, segmentIndex, segmentStart = null) => {
+  const elementText = getTextWithoutFurigana(element);
+  
+  const normalizedElement = normalizeTextForMatching(elementText);
+  const normalizedSegment = normalizeTextForMatching(segmentText);
+  
+  if (!normalizedElement.includes(normalizedSegment)) return null;
+  
+  // ✅ NEW: Check if this element contains styled children (em-sesame, ruby, emphasis)
+  const hasStyledChildren = element.querySelector('ruby, .em-sesame, [class*="em-"], [class*="emphasis"]');
+  
+  if (hasStyledChildren) {
+    // ✅ Strategy 1: Wrap the entire parent element, preserving all children
+    console.log(`✨ Segment ${segmentIndex} contains styled elements - wrapping parent`);
     
-    const allOccurrences = [];
-    let searchPos = 0;
-    while (true) {
-      const foundPos = elementText.indexOf(segmentText, searchPos);
-      if (foundPos === -1) break;
-      allOccurrences.push(foundPos);
-      searchPos = foundPos + 1;
+    // Don't wrap if already wrapped
+    if (element.hasAttribute('data-segment-id')) {
+      console.log(`⚠️ Element already has segment ID`);
+      return null;
     }
     
-    if (allOccurrences.length === 0) return null;
-    
-    const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT, null, false);
-    const textNodes = [];
-    let node;
-    
-    while (node = walker.nextNode()) {
-      let parent = node.parentNode;
-      let isInFurigana = false;
-      while (parent && parent !== element) {
-        if (parent.tagName === 'RT' || parent.tagName === 'RP') {
-          isInFurigana = true;
-          break;
-        }
-        parent = parent.parentNode;
-      }
-      
-      if (!isInFurigana) {
-        textNodes.push(node);
-      }
-    }
-    
-    let pos = null;
-    for (const testPos of allOccurrences) {
-      let charCount = 0;
-      let foundNode = null;
-      let foundOffset = -1;
-      
-      for (let i = 0; i < textNodes.length; i++) {
-        const node = textNodes[i];
-        const nodeStart = charCount;
-        const nodeEnd = charCount + node.textContent.length;
-        
-        if (testPos >= nodeStart && testPos < nodeEnd) {
-          foundNode = node;
-          foundOffset = testPos - nodeStart;
-          break;
-        }
-        
-        charCount = nodeEnd;
-      }
-      
-      if (!foundNode) continue;
-      
-      let isAlreadyWrapped = false;
-      let checkParent = foundNode.parentNode;
-      while (checkParent && checkParent !== element) {
-        if (checkParent.classList && checkParent.classList.contains('sync-segment')) {
-          isAlreadyWrapped = true;
-          break;
-        }
-        checkParent = checkParent.parentNode;
-      }
-      
-      if (!isAlreadyWrapped) {
-        pos = testPos;
-        break;
-      }
-    }
-    
-    if (pos === null) return null;
-    
-    let charCount = 0;
-    let startNodeIdx = -1;
-    let startOffset = 0;
-    let endNodeIdx = -1;
-    let endOffset = 0;
-    
-    for (let i = 0; i < textNodes.length; i++) {
-      const node = textNodes[i];
-      const nodeStart = charCount;
-      const nodeEnd = charCount + node.textContent.length;
-      
-      if (pos >= nodeStart && pos < nodeEnd && startNodeIdx === -1) {
-        startNodeIdx = i;
-        startOffset = pos - nodeStart;
-      }
-      
-      if (pos + segmentText.length > nodeStart && pos + segmentText.length <= nodeEnd && startNodeIdx !== -1) {
-        endNodeIdx = i;
-        endOffset = pos + segmentText.length - nodeStart;
-        break;
-      }
-      
-      charCount = nodeEnd;
-    }
-    
-    if (startNodeIdx === -1 || endNodeIdx === -1) return null;
-    
-    const span = document.createElement('span');
-    span.className = 'sync-segment cursor-pointer rounded transition-colors';
-    span.setAttribute('data-segment-id', segmentIndex);
-    span.textContent = segmentText;
+    // Add segment data directly to the parent element
+    element.setAttribute('data-segment-id', segmentIndex);
+    element.classList.add('sync-segment-container', 'cursor-pointer', 'rounded', 'transition-colors');
     
     const startTime = segmentStart !== null ? segmentStart : (segments[segmentIndex]?.start || 0);
-    span.setAttribute('data-segment-start', startTime);
+    element.setAttribute('data-segment-start', startTime);
     
     if (window.bookmarkSegmentIndex === segmentIndex) {
-      span.classList.add('bookmarked');
+      element.classList.add('bookmarked');
     }
     
-    span.onclick = (e) => {
-      e.stopPropagation();
-
-      if (isMobile) {
-        console.log(`Mobile tap on segment - ignoring (no audio/scroll)`);
-        return;
-      }
-
-      const idx = parseInt(span.getAttribute('data-segment-id'));
-      const startTime = parseFloat(span.getAttribute('data-segment-start')) || 0;
+element.onclick = (e) => {
+  // ✅ FIXED: Allow clicks on any child element to trigger
+  e.stopPropagation();
+  if (isMobile) return;
       
-      console.log(`Clicked segment ${idx}, jumping to time ${startTime}`);
+      const idx = parseInt(element.getAttribute('data-segment-id'));
+      const startTime = parseFloat(element.getAttribute('data-segment-start')) || 0;
       
       if (audioRef.current) {
         audioRef.current.currentTime = startTime;
@@ -1043,46 +1423,196 @@ const loadBookWithoutCache = async (data) => {
       }
     };
     
-    if (startNodeIdx === endNodeIdx) {
-      const node = textNodes[startNodeIdx];
-      const nodeText = node.textContent;
-      const before = nodeText.substring(0, startOffset);
-      const after = nodeText.substring(endOffset);
-      
-      const parent = node.parentNode;
-      if (!parent) return null;
-      
-      if (before) parent.insertBefore(document.createTextNode(before), node);
-      parent.insertBefore(span, node);
-      if (after) parent.insertBefore(document.createTextNode(after), node);
-      parent.removeChild(node);
-      return span;
+    return element;
+  }
+  
+  // ✅ Strategy 2: No styled children - use original text node wrapping
+  const allOccurrences = [];
+  let searchPos = 0;
+  while (true) {
+    const foundPos = elementText.indexOf(segmentText, searchPos);
+    if (foundPos === -1) break;
+    allOccurrences.push(foundPos);
+    searchPos = foundPos + 1;
+  }
+  
+  if (allOccurrences.length === 0) return null;
+  
+  const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT, null, false);
+  const textNodes = [];
+  let node;
+  
+  while (node = walker.nextNode()) {
+    let parent = node.parentNode;
+    let isInFurigana = false;
+    
+    while (parent && parent !== element) {
+      if (parent.tagName === 'RT' || parent.tagName === 'RP') {
+        isInFurigana = true;
+        break;
+      }
+      parent = parent.parentNode;
     }
     
-    const startNode = textNodes[startNodeIdx];
-    const endNode = textNodes[endNodeIdx];
+    if (!isInFurigana) {
+      textNodes.push(node);
+    }
+  }
+  
+  let pos = null;
+  for (const testPos of allOccurrences) {
+    let charCount = 0;
+    let foundNode = null;
+    let foundOffset = -1;
     
-    const beforeText = startNode.textContent.substring(0, startOffset);
-    const startParent = startNode.parentNode;
-    if (!startParent) return null;
-    
-    if (beforeText) startParent.insertBefore(document.createTextNode(beforeText), startNode);
-    startParent.insertBefore(span, startNode);
-    startParent.removeChild(startNode);
-    
-    for (let i = startNodeIdx + 1; i < endNodeIdx; i++) {
+    for (let i = 0; i < textNodes.length; i++) {
       const node = textNodes[i];
-      if (node.parentNode) node.parentNode.removeChild(node);
+      const nodeStart = charCount;
+      const nodeEnd = charCount + node.textContent.length;
+      
+      if (testPos >= nodeStart && testPos < nodeEnd) {
+        foundNode = node;
+        foundOffset = testPos - nodeStart;
+        break;
+      }
+      
+      charCount = nodeEnd;
     }
     
-    if (endNode.parentNode) {
-      const afterText = endNode.textContent.substring(endOffset);
-      if (afterText) endNode.parentNode.insertBefore(document.createTextNode(afterText), endNode);
-      endNode.parentNode.removeChild(endNode);
+    if (!foundNode) continue;
+    
+    let isAlreadyWrapped = false;
+    let checkParent = foundNode.parentNode;
+    while (checkParent && checkParent !== element) {
+      if (checkParent.classList && (
+          checkParent.classList.contains('sync-segment') ||
+          checkParent.hasAttribute('data-segment-id')
+        )) {
+        isAlreadyWrapped = true;
+        break;
+      }
+      checkParent = checkParent.parentNode;
     }
     
-    return span;
+    if (!isAlreadyWrapped) {
+      pos = testPos;
+      break;
+    }
+  }
+  
+  if (pos === null) return null;
+  
+  let charCount = 0;
+  let startNodeIdx = -1;
+  let startOffset = 0;
+  let endNodeIdx = -1;
+  let endOffset = 0;
+  
+  for (let i = 0; i < textNodes.length; i++) {
+    const node = textNodes[i];
+    const nodeStart = charCount;
+    const nodeEnd = charCount + node.textContent.length;
+    
+    if (pos >= nodeStart && pos < nodeEnd && startNodeIdx === -1) {
+      startNodeIdx = i;
+      startOffset = pos - nodeStart;
+    }
+    
+    if (pos + segmentText.length > nodeStart && pos + segmentText.length <= nodeEnd && startNodeIdx !== -1) {
+      endNodeIdx = i;
+      endOffset = pos + segmentText.length - nodeStart;
+      break;
+    }
+    
+    charCount = nodeEnd;
+  }
+  
+  if (startNodeIdx === -1 || endNodeIdx === -1) return null;
+  
+  const span = document.createElement('span');
+  span.className = 'sync-segment cursor-pointer rounded transition-colors';
+  span.setAttribute('data-segment-id', segmentIndex);
+  span.textContent = segmentText;
+  
+  const startTime = segmentStart !== null ? segmentStart : (segments[segmentIndex]?.start || 0);
+  span.setAttribute('data-segment-start', startTime);
+  
+  if (window.bookmarkSegmentIndex === segmentIndex) {
+    span.classList.add('bookmarked');
+  }
+  
+  span.onclick = (e) => {
+    e.stopPropagation();
+    if (isMobile) return;
+
+    const idx = parseInt(span.getAttribute('data-segment-id'));
+    const startTime = parseFloat(span.getAttribute('data-segment-start')) || 0;
+    
+    if (audioRef.current) {
+      audioRef.current.currentTime = startTime;
+      setCurrentSegmentIndex(idx);
+      
+      scrollToSegment(idx, {
+        shouldScroll: true,
+        instant: false,
+        block: 'center',
+        isMobile,
+        contentRef
+      });
+      
+      const playPromise = audioRef.current.play();
+      if (playPromise !== undefined) {
+        playPromise
+          .then(() => setIsPlaying(true))
+          .catch(error => {
+            console.error('iOS segment click playback error:', error);
+            setIsPlaying(false);
+            alert('Tap the play button first to enable audio controls.');
+          });
+      }
+    }
   };
+  
+  if (startNodeIdx === endNodeIdx) {
+    const node = textNodes[startNodeIdx];
+    const nodeText = node.textContent;
+    const before = nodeText.substring(0, startOffset);
+    const after = nodeText.substring(endOffset);
+    
+    const parent = node.parentNode;
+    if (!parent) return null;
+    
+    if (before) parent.insertBefore(document.createTextNode(before), node);
+    parent.insertBefore(span, node);
+    if (after) parent.insertBefore(document.createTextNode(after), node);
+    parent.removeChild(node);
+    return span;
+  }
+  
+  const startNode = textNodes[startNodeIdx];
+  const endNode = textNodes[endNodeIdx];
+  
+  const beforeText = startNode.textContent.substring(0, startOffset);
+  const startParent = startNode.parentNode;
+  if (!startParent) return null;
+  
+  if (beforeText) startParent.insertBefore(document.createTextNode(beforeText), startNode);
+  startParent.insertBefore(span, startNode);
+  startParent.removeChild(startNode);
+  
+  for (let i = startNodeIdx + 1; i < endNodeIdx; i++) {
+    const node = textNodes[i];
+    if (node.parentNode) node.parentNode.removeChild(node);
+  }
+  
+  if (endNode.parentNode) {
+    const afterText = endNode.textContent.substring(endOffset);
+    if (afterText) endNode.parentNode.insertBefore(document.createTextNode(afterText), endNode);
+    endNode.parentNode.removeChild(endNode);
+  }
+  
+  return span;
+};
 
   /**
    * Start the matching process between text and audio segments
@@ -1343,51 +1873,52 @@ const startMatching = async () => {
   /**
    * Handle audio timeupdate event
    */
-  const handleTimeUpdate = () => {
-    if (!audioRef.current || suppressTimeUpdateRef.current) return;
+const handleTimeUpdate = () => {
+  if (!audioRef.current || suppressTimeUpdateRef.current) return;
+  
+  const time = audioRef.current.currentTime;
+  setCurrentTime(time);
+  
+  if (segments.length === 0) return;
+  
+  const segmentIndex = segments.findIndex(seg => 
+    time >= seg.start && time <= seg.end
+  );
+  
+  if (segmentIndex !== -1 && segmentIndex !== currentSegmentIndex) {
+    const prevSegmentIndex = currentSegmentIndex;
+    setCurrentSegmentIndex(segmentIndex);
     
-    const time = audioRef.current.currentTime;
-    setCurrentTime(time);
+    document.querySelectorAll('.sync-segment, .sync-segment-wrapper').forEach(el => {
+      el.classList.remove('dark:bg-blue-600', 'bg-yellow-200', 'text-black', 'dark:text-white');
+    });
     
-    if (segments.length === 0) return;
+    const element = document.querySelector(`[data-segment-id="${segmentIndex}"]`);
+    if (element) {
+      element.classList.add('dark:bg-blue-600', 'bg-yellow-200', 'text-black', 'dark:text-white');
+    }
     
-    const segmentIndex = segments.findIndex(seg => 
-      time >= seg.start && time <= seg.end
-    );
-    
-    if (segmentIndex !== -1 && segmentIndex !== currentSegmentIndex) {
-      const prevSegmentIndex = currentSegmentIndex;
-      setCurrentSegmentIndex(segmentIndex);
-      
-      document.querySelectorAll('.sync-segment').forEach(el => {
-        el.classList.remove('dark:bg-blue-600', 'bg-yellow-200', 'text-black', 'dark:text-white');
-      });
-      const element = document.querySelector(`[data-segment-id="${segmentIndex}"]`);
-      if (element) {
-        element.classList.add('dark:bg-blue-600', 'bg-yellow-200', 'text-black', 'dark:text-white');
-      }
-      
-      if (autoScroll) {
-        if (isMobile) {
-          scrollToSegment(segmentIndex, {
-            shouldScroll: true,
-            instant: true,
-            isMobile: true,
-            contentRef
-          });
-        } else {
-          const shouldScroll = prevSegmentIndex === -1 || segmentIndex > prevSegmentIndex;
-          scrollToSegment(segmentIndex, {
-            shouldScroll,
-            instant: false,
-            block: 'center',
-            isMobile: false,
-            contentRef
-          });
-        }
+    if (autoScroll) {
+      if (isMobile) {
+        scrollToSegment(segmentIndex, {
+          shouldScroll: true,
+          instant: true,
+          isMobile: true,
+          contentRef
+        });
+      } else {
+        const shouldScroll = prevSegmentIndex === -1 || segmentIndex > prevSegmentIndex;
+        scrollToSegment(segmentIndex, {
+          shouldScroll,
+          instant: false,
+          block: 'center',
+          isMobile: false,
+          contentRef
+        });
       }
     }
-  };
+  }
+};
 
   /**
    * Toggle audio playback state
@@ -1515,6 +2046,12 @@ const startMatching = async () => {
   // ============================================
 
 if (!currentBook) {
+  // Create unified grid items (series + standalone books)
+  const gridItems = [
+    ...series.map(s => ({ type: 'series', data: s, sort_order: s.sort_order })),
+    ...books.filter(b => !b.series_id).map(b => ({ type: 'book', data: b, sort_order: b.sort_order }))
+  ].sort((a, b) => a.sort_order - b.sort_order);
+  
   return (
     <div className="min-h-screen">
       <div className="container mx-auto p-6">
@@ -1524,20 +2061,76 @@ if (!currentBook) {
             <h1 className="text-3xl font-bold text-stone-900 dark:text-stone-100">Synchronized Ebook Reader</h1>
           </div>
           
-          {/* Library Path Display */}
-          {libraryPath && (
+          <div className="flex items-center gap-3">
             <button
-              onClick={() => {
-                setEditingPath(libraryPath);
-                setShowPathEditor(true);
-              }}
-              className="flex items-center gap-2 px-4 py-2 bg-stone-100 dark:bg-stone-800 hover:bg-stone-200 dark:hover:bg-stone-700 rounded-lg transition-colors text-sm text-stone-700 dark:text-stone-300 border border-stone-300 dark:border-stone-600"
+              onClick={() => setShowSeriesModal(true)}
+              className="flex items-center gap-2 px-4 py-2 bg-red-500 hover:bg-red-600 text-white rounded-lg transition-colors shadow-sm"
             >
-              <Settings className="w-4 h-4" />
-              <span className="font-mono truncate max-w-md">{libraryPath}</span>
+              <Plus className="w-5 h-5" />
+              <span>New Series</span>
             </button>
-          )}
+            
+            {libraryPath && (
+              <button
+                onClick={() => {
+                  setEditingPath(libraryPath);
+                  setShowPathEditor(true);
+                }}
+                className="flex items-center gap-2 px-4 py-2 bg-stone-100 dark:bg-stone-800 hover:bg-stone-200 dark:hover:bg-stone-700 rounded-lg transition-colors text-sm text-stone-700 dark:text-stone-300 border border-stone-300 dark:border-stone-600"
+              >
+                <Settings className="w-4 h-4" />
+                <span className="font-mono truncate max-w-md">{libraryPath}</span>
+              </button>
+            )}
+          </div>
         </div>
+        
+        {/* Series Books Modal */}
+        {showSeriesBooksModal && viewingSeriesBooks && (
+          <SeriesBooksModal
+            series={viewingSeriesBooks}
+            books={books.filter(b => b.series_id === viewingSeriesBooks.id).sort((a, b) => a.series_order - b.series_order)}
+            onClose={() => {
+              setShowSeriesBooksModal(false);
+              setViewingSeriesBooks(null);
+            }}
+            onSelectBook={loadBook}
+          />
+        )}
+        
+        {/* Series Editor Modal */}
+        {showSeriesModal && (
+          <SeriesModal
+            series={editingSeries}
+            books={books}
+            onClose={() => {
+              setShowSeriesModal(false);
+              setEditingSeries(null);
+            }}
+            onSave={async (name, coverBookId, selectedBooks) => {
+              if (editingSeries) {
+                await updateSeries(editingSeries.id, name, coverBookId);
+                await addBooksToSeries(editingSeries.id, selectedBooks);
+              } else {
+                const seriesId = await createSeries(name, coverBookId);
+                if (seriesId && selectedBooks.length > 0) {
+                  await addBooksToSeries(seriesId, selectedBooks);
+                }
+              }
+              
+              setShowSeriesModal(false);
+              setEditingSeries(null);
+              
+              // Reload data
+              const [seriesResponse, booksResponse] = await Promise.all([
+                fetch('/api/series'),
+                fetch('/api/books')
+              ]);
+              setSeries(await seriesResponse.json());
+              setBooks(await booksResponse.json());
+            }}
+          />
+        )}
         
         {/* Path Editor Modal */}
         {showPathEditor && (
@@ -1589,7 +2182,7 @@ if (!currentBook) {
             </div>
             <p className="text-stone-600 dark:text-stone-400">Loading library...</p>
           </div>
-        ) : books.length === 0 ? (
+        ) : gridItems.length === 0 ? (
           <div className="text-center py-12">
             <p className="text-stone-600 dark:text-stone-400 text-lg mb-4">No books found in library</p>
             <p className="text-stone-500 dark:text-stone-500 text-sm">
@@ -1597,12 +2190,73 @@ if (!currentBook) {
             </p>
           </div>
         ) : (
-          <DragSortableBooks 
-            books={books} 
-            onBooksReorder={handleBooksReorder}
-            onBookSelect={loadBook}
-          />
-        )}
+  <DragSortableGrid 
+    items={gridItems}
+    onItemsReorder={async (reorderedItems) => {
+      // Update local state immediately
+      const updatedBooks = [...books];
+      const updatedSeries = [...series];
+      
+      reorderedItems.forEach((item, index) => {
+        item.sort_order = index;
+        
+        if (item.type === 'series') {
+          const seriesIndex = updatedSeries.findIndex(s => s.id === item.data.id);
+          if (seriesIndex !== -1) {
+            updatedSeries[seriesIndex] = { ...updatedSeries[seriesIndex], sort_order: index };
+          }
+        } else {
+          const bookIndex = updatedBooks.findIndex(b => b.id === item.data.id);
+          if (bookIndex !== -1) {
+            updatedBooks[bookIndex] = { ...updatedBooks[bookIndex], sort_order: index };
+          }
+        }
+      });
+      
+      setBooks(updatedBooks);
+      setSeries(updatedSeries);
+      
+      // Save to server
+      const bookUpdates = reorderedItems
+        .filter(item => item.type === 'book')
+        .map(item => ({ id: item.data.id, sort_order: item.sort_order }));
+        
+      const seriesUpdates = reorderedItems
+        .filter(item => item.type === 'series')
+        .map(item => ({ id: item.data.id, sort_order: item.sort_order }));
+      
+      try {
+        if (bookUpdates.length > 0) {
+          await fetch('/api/books/sort', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ sortedBooks: bookUpdates })
+          });
+        }
+        
+        if (seriesUpdates.length > 0) {
+          await fetch('/api/series/sort', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ sortedSeries: seriesUpdates })
+          });
+        }
+      } catch (err) {
+        console.error('Error saving sort order:', err);
+      }
+    }}
+    onOpenBook={loadBook}
+    onShowSeriesBooks={(series) => {
+      setViewingSeriesBooks(series);
+      setShowSeriesBooksModal(true);
+    }}
+    onEditSeries={(series) => {
+      setEditingSeries(series);
+      setShowSeriesModal(true);
+    }}
+    onDeleteSeries={deleteSeries}
+  />
+)}
       </div>
     </div>
   );
@@ -1871,10 +2525,7 @@ if (!currentBook) {
                       }
                     }}
                     dangerouslySetInnerHTML={{ __html: processHtmlSection(htmlContent, sectionIndex) }}
-                    style={{
-                      fontSize: '1.125rem',
-                      lineHeight: '1.75rem'
-                    }}
+                    
                   />
                 ))}
               </div>
