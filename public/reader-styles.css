@@ -68,6 +68,22 @@ html.reader-open {
   z-index: 1;
 }
 
+.sync-segment-container {
+  display: inline;
+}
+
+.sync-segment-container.dark\:bg-blue-600,
+.sync-segment.dark\:bg-blue-600 {
+  background-color: rgb(37 99 235) !important;
+  color: white !important;
+}
+
+.sync-segment-container.bg-yellow-200,
+.sync-segment.bg-yellow-200 {
+  background-color: rgb(254 240 138) !important;
+  color: black !important;
+}
+
 
 
 /* Bookmark outline visible on highlighted segments */

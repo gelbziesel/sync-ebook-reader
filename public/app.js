@@ -1348,16 +1348,14 @@ const attachClickHandlers = (segmentsData) => {
   });
 };
 
-  /**
-   * Wrap segment text in a clickable span element for audio synchronization
-   * @param {HTMLElement} element - Parent element containing the text to wrap
-   * @param {string} segmentText - Text content to find and wrap
-   * @param {number} segmentIndex - Index of the segment in the audio timeline
-   * @param {number|null} segmentStart - Start time in audio (seconds), optional
-   * @returns {HTMLSpanElement|null} The created span element, or null if wrapping failed
-   */
-
-
+/**
+ * Wrap segment text in a clickable element, preserving furigana and styled elements
+ * @param {HTMLElement} element - Parent element containing the text to wrap
+ * @param {string} segmentText - Text content to find and wrap
+ * @param {number} segmentIndex - Index of the segment in the audio timeline
+ * @param {number|null} segmentStart - Start time in audio (seconds), optional
+ * @returns {HTMLElement|null} The created wrapper element, or null if wrapping failed
+ */
 const wrapSegmentInElement = (element, segmentText, segmentIndex, segmentStart = null) => {
   const elementText = getTextWithoutFurigana(element);
   
@@ -1366,37 +1364,199 @@ const wrapSegmentInElement = (element, segmentText, segmentIndex, segmentStart =
   
   if (!normalizedElement.includes(normalizedSegment)) return null;
   
-  // ✅ NEW: Check if this element contains styled children (em-sesame, ruby, emphasis)
-  const hasStyledChildren = element.querySelector('ruby, .em-sesame, [class*="em-"], [class*="emphasis"]');
+  // Find the position of the segment text
+  const segmentStartPos = elementText.indexOf(segmentText);
+  if (segmentStartPos === -1) return null;
+  const segmentEndPos = segmentStartPos + segmentText.length;
   
-  if (hasStyledChildren) {
-    // ✅ Strategy 1: Wrap the entire parent element, preserving all children
-    console.log(`✨ Segment ${segmentIndex} contains styled elements - wrapping parent`);
-    
-    // Don't wrap if already wrapped
-    if (element.hasAttribute('data-segment-id')) {
-      console.log(`⚠️ Element already has segment ID`);
-      return null;
+  // Helper to check if an element is styled
+  const isStyledElement = (node) => {
+    if (node.nodeType !== Node.ELEMENT_NODE) return false;
+    if (node.tagName === 'RUBY') return true;
+    if (node.tagName === 'EM' || node.tagName === 'STRONG' || node.tagName === 'I' || node.tagName === 'B') return true;
+    if (node.classList && (
+      node.classList.contains('em-sesame') ||
+      Array.from(node.classList).some(c => c.includes('em-')) ||
+      Array.from(node.classList).some(c => c.includes('emphasis'))
+    )) return true;
+    return false;
+  };
+  
+  // Walk through all nodes and find which ones overlap with our segment
+  const walker = document.createTreeWalker(element, NodeFilter.SHOW_ALL, null, false);
+  const overlappingNodes = [];
+  const seenStyledElements = new Set(); // Track styled elements to avoid double-counting
+  let currentPos = 0;
+  let node;
+  
+  while (node = walker.nextNode()) {
+    // Skip furigana
+    if (node.nodeType === Node.ELEMENT_NODE && (node.tagName === 'RT' || node.tagName === 'RP')) {
+      continue;
     }
     
-    // Add segment data directly to the parent element
-    element.setAttribute('data-segment-id', segmentIndex);
-    element.classList.add('sync-segment-container', 'cursor-pointer', 'rounded', 'transition-colors');
+    // Check for styled elements that should be kept together
+    if (isStyledElement(node)) {
+      const styledText = getTextWithoutFurigana(node);
+      const styledStart = currentPos;
+      const styledEnd = currentPos + styledText.length;
+      
+      // Mark this styled element so we don't count its text nodes separately
+      seenStyledElements.add(node);
+      
+      // Only include styled element if it's COMPLETELY within the segment
+      if (styledStart >= segmentStartPos && styledEnd <= segmentEndPos) {
+        overlappingNodes.push({
+          node: node,
+          type: 'styled',
+          tagName: node.tagName,
+          start: styledStart,
+          end: styledEnd
+        });
+      }
+      
+      // Add to position tracking (we'll skip the children's text nodes)
+      currentPos += styledText.length;
+      continue; // Don't process this node's children in the next iteration
+    }
+    
+    // For text nodes, track position
+    if (node.nodeType === Node.TEXT_NODE) {
+      let parent = node.parentNode;
+      let isInFurigana = false;
+      let isInSeenStyled = false;
+      
+      // Check if this text node is inside furigana or a styled element we already processed
+      while (parent && parent !== element) {
+        if (parent.tagName === 'RT' || parent.tagName === 'RP') {
+          isInFurigana = true;
+          break;
+        }
+        if (seenStyledElements.has(parent)) {
+          isInSeenStyled = true;
+          break;
+        }
+        parent = parent.parentNode;
+      }
+      
+      // Skip furigana and text inside styled elements we already counted
+      if (isInFurigana || isInSeenStyled) continue;
+      
+      const nodeText = node.textContent;
+      const nodeStart = currentPos;
+      const nodeEnd = currentPos + nodeText.length;
+      
+      // Check if this text node overlaps with our segment
+      if (nodeEnd > segmentStartPos && nodeStart < segmentEndPos) {
+        overlappingNodes.push({
+          node: node,
+          type: 'text',
+          start: nodeStart,
+          end: nodeEnd,
+          startOverlap: Math.max(nodeStart, segmentStartPos) - nodeStart,
+          endOverlap: Math.min(nodeEnd, segmentEndPos) - nodeStart
+        });
+      }
+      
+      currentPos += nodeText.length;
+    }
+  }
+  
+  if (overlappingNodes.length === 0) return null;
+  
+  // Check if any node is already wrapped
+  for (const nodeInfo of overlappingNodes) {
+    let parent = nodeInfo.node.parentNode;
+    while (parent && parent !== element) {
+      if (parent.hasAttribute('data-segment-id')) {
+        console.log(`⚠️ Node already wrapped in segment`);
+        return null;
+      }
+      parent = parent.parentNode;
+    }
+  }
+  
+  // Split text nodes that are only partially included
+  const processedNodes = [];
+  
+  for (const nodeInfo of overlappingNodes) {
+    if (nodeInfo.type === 'text') {
+      const fullText = nodeInfo.node.textContent;
+      const startOffset = nodeInfo.startOverlap;
+      const endOffset = nodeInfo.endOverlap;
+      
+      // Check if we need to split this text node
+      if (startOffset > 0 || endOffset < fullText.length) {
+        const parent = nodeInfo.node.parentNode;
+        if (!parent) continue;
+        
+        const before = fullText.substring(0, startOffset);
+        const middle = fullText.substring(startOffset, endOffset);
+        const after = fullText.substring(endOffset);
+        
+        // Create new nodes
+        if (before) parent.insertBefore(document.createTextNode(before), nodeInfo.node);
+        const middleNode = document.createTextNode(middle);
+        parent.insertBefore(middleNode, nodeInfo.node);
+        if (after) parent.insertBefore(document.createTextNode(after), nodeInfo.node);
+        
+        // Remove original
+        parent.removeChild(nodeInfo.node);
+        
+        // Track the middle part
+        processedNodes.push(middleNode);
+      } else {
+        // Use the whole node
+        processedNodes.push(nodeInfo.node);
+      }
+    } else if (nodeInfo.type === 'styled') {
+      // Styled elements are included whole
+      processedNodes.push(nodeInfo.node);
+    }
+  }
+  
+  if (processedNodes.length === 0) return null;
+  
+  // Strategy 1: Multiple nodes or styled elements - create container
+  const hasStyledElements = overlappingNodes.some(n => n.type === 'styled');
+  
+  if (hasStyledElements || processedNodes.length > 1) {
+    const styledTypes = overlappingNodes.filter(n => n.type === 'styled').map(n => n.tagName).join(', ');
+    console.log(`✨ Segment ${segmentIndex} wrapping ${processedNodes.length} nodes (styled: ${hasStyledElements ? styledTypes : 'none'})`);
+    
+    // Create wrapper
+    const wrapper = document.createElement('span');
+    wrapper.className = 'sync-segment-container cursor-pointer rounded transition-colors';
+    wrapper.setAttribute('data-segment-id', segmentIndex);
     
     const startTime = segmentStart !== null ? segmentStart : (segments[segmentIndex]?.start || 0);
-    element.setAttribute('data-segment-start', startTime);
+    wrapper.setAttribute('data-segment-start', startTime);
     
     if (window.bookmarkSegmentIndex === segmentIndex) {
-      element.classList.add('bookmarked');
+      wrapper.classList.add('bookmarked');
     }
     
-element.onclick = (e) => {
-  // ✅ FIXED: Allow clicks on any child element to trigger
-  e.stopPropagation();
-  if (isMobile) return;
+    // Insert wrapper before first node
+    const firstNode = processedNodes[0];
+    const insertionParent = firstNode.parentNode;
+    if (!insertionParent) return null;
+    
+    insertionParent.insertBefore(wrapper, firstNode);
+    
+    // Move all processed nodes into wrapper
+    for (const node of processedNodes) {
+      if (node.parentNode) {
+        wrapper.appendChild(node);
+      }
+    }
+    
+    // Add click handler
+    wrapper.onclick = (e) => {
+      e.stopPropagation();
+      if (isMobile) return;
       
-      const idx = parseInt(element.getAttribute('data-segment-id'));
-      const startTime = parseFloat(element.getAttribute('data-segment-start')) || 0;
+      const idx = parseInt(wrapper.getAttribute('data-segment-id'));
+      const startTime = parseFloat(wrapper.getAttribute('data-segment-start')) || 0;
       
       if (audioRef.current) {
         audioRef.current.currentTime = startTime;
@@ -1423,116 +1583,16 @@ element.onclick = (e) => {
       }
     };
     
-    return element;
+    return wrapper;
   }
   
-  // ✅ Strategy 2: No styled children - use original text node wrapping
-  const allOccurrences = [];
-  let searchPos = 0;
-  while (true) {
-    const foundPos = elementText.indexOf(segmentText, searchPos);
-    if (foundPos === -1) break;
-    allOccurrences.push(foundPos);
-    searchPos = foundPos + 1;
-  }
-  
-  if (allOccurrences.length === 0) return null;
-  
-  const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT, null, false);
-  const textNodes = [];
-  let node;
-  
-  while (node = walker.nextNode()) {
-    let parent = node.parentNode;
-    let isInFurigana = false;
-    
-    while (parent && parent !== element) {
-      if (parent.tagName === 'RT' || parent.tagName === 'RP') {
-        isInFurigana = true;
-        break;
-      }
-      parent = parent.parentNode;
-    }
-    
-    if (!isInFurigana) {
-      textNodes.push(node);
-    }
-  }
-  
-  let pos = null;
-  for (const testPos of allOccurrences) {
-    let charCount = 0;
-    let foundNode = null;
-    let foundOffset = -1;
-    
-    for (let i = 0; i < textNodes.length; i++) {
-      const node = textNodes[i];
-      const nodeStart = charCount;
-      const nodeEnd = charCount + node.textContent.length;
-      
-      if (testPos >= nodeStart && testPos < nodeEnd) {
-        foundNode = node;
-        foundOffset = testPos - nodeStart;
-        break;
-      }
-      
-      charCount = nodeEnd;
-    }
-    
-    if (!foundNode) continue;
-    
-    let isAlreadyWrapped = false;
-    let checkParent = foundNode.parentNode;
-    while (checkParent && checkParent !== element) {
-      if (checkParent.classList && (
-          checkParent.classList.contains('sync-segment') ||
-          checkParent.hasAttribute('data-segment-id')
-        )) {
-        isAlreadyWrapped = true;
-        break;
-      }
-      checkParent = checkParent.parentNode;
-    }
-    
-    if (!isAlreadyWrapped) {
-      pos = testPos;
-      break;
-    }
-  }
-  
-  if (pos === null) return null;
-  
-  let charCount = 0;
-  let startNodeIdx = -1;
-  let startOffset = 0;
-  let endNodeIdx = -1;
-  let endOffset = 0;
-  
-  for (let i = 0; i < textNodes.length; i++) {
-    const node = textNodes[i];
-    const nodeStart = charCount;
-    const nodeEnd = charCount + node.textContent.length;
-    
-    if (pos >= nodeStart && pos < nodeEnd && startNodeIdx === -1) {
-      startNodeIdx = i;
-      startOffset = pos - nodeStart;
-    }
-    
-    if (pos + segmentText.length > nodeStart && pos + segmentText.length <= nodeEnd && startNodeIdx !== -1) {
-      endNodeIdx = i;
-      endOffset = pos + segmentText.length - nodeStart;
-      break;
-    }
-    
-    charCount = nodeEnd;
-  }
-  
-  if (startNodeIdx === -1 || endNodeIdx === -1) return null;
+  // Strategy 2: Single text node - use simple span wrapping
+  const textNode = processedNodes[0];
   
   const span = document.createElement('span');
   span.className = 'sync-segment cursor-pointer rounded transition-colors';
   span.setAttribute('data-segment-id', segmentIndex);
-  span.textContent = segmentText;
+  span.textContent = textNode.textContent;
   
   const startTime = segmentStart !== null ? segmentStart : (segments[segmentIndex]?.start || 0);
   span.setAttribute('data-segment-start', startTime);
@@ -1573,43 +1633,12 @@ element.onclick = (e) => {
     }
   };
   
-  if (startNodeIdx === endNodeIdx) {
-    const node = textNodes[startNodeIdx];
-    const nodeText = node.textContent;
-    const before = nodeText.substring(0, startOffset);
-    const after = nodeText.substring(endOffset);
-    
-    const parent = node.parentNode;
-    if (!parent) return null;
-    
-    if (before) parent.insertBefore(document.createTextNode(before), node);
-    parent.insertBefore(span, node);
-    if (after) parent.insertBefore(document.createTextNode(after), node);
-    parent.removeChild(node);
-    return span;
-  }
+  // Replace text node with span
+  const parent = textNode.parentNode;
+  if (!parent) return null;
   
-  const startNode = textNodes[startNodeIdx];
-  const endNode = textNodes[endNodeIdx];
-  
-  const beforeText = startNode.textContent.substring(0, startOffset);
-  const startParent = startNode.parentNode;
-  if (!startParent) return null;
-  
-  if (beforeText) startParent.insertBefore(document.createTextNode(beforeText), startNode);
-  startParent.insertBefore(span, startNode);
-  startParent.removeChild(startNode);
-  
-  for (let i = startNodeIdx + 1; i < endNodeIdx; i++) {
-    const node = textNodes[i];
-    if (node.parentNode) node.parentNode.removeChild(node);
-  }
-  
-  if (endNode.parentNode) {
-    const afterText = endNode.textContent.substring(endOffset);
-    if (afterText) endNode.parentNode.insertBefore(document.createTextNode(afterText), endNode);
-    endNode.parentNode.removeChild(endNode);
-  }
+  parent.insertBefore(span, textNode);
+  parent.removeChild(textNode);
   
   return span;
 };
