@@ -478,12 +478,7 @@ const DragSortableGrid = ({ items, onItemsReorder, onOpenBook, onShowSeriesBooks
                   </div>
                 </div>
                 
-                <div className="absolute top-2 right-2 bg-green-500 text-white px-2 py-1 rounded-full text-xs font-medium shadow-sm">
-                  <div className="flex items-center gap-1">
-                    <Volume2 className="w-3 h-3" />
-                    <span>Audio</span>
-                  </div>
-                </div>
+                
               </div>
               
             
@@ -876,12 +871,7 @@ const SeriesBooksModal = ({ series, books, onClose, onSelectBook }) => {
                     </div>
                   </div>
                   
-                  <div className="absolute top-2 right-2 bg-green-500 text-white px-2 py-1 rounded-full text-xs font-medium shadow-sm">
-                    <div className="flex items-center gap-1">
-                      <Volume2 className="w-3 h-3" />
-                      <span>Audio</span>
-                    </div>
-                  </div>
+                  
                 </div>
                 
 
