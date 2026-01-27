@@ -46,7 +46,7 @@ app.use(compression({
     if (req.headers['x-no-compression']) return false;
     return compression.filter(req, res);
   },
-  level: 6 // Balance between speed and compression
+  level: 6
 }));
 
 app.use(express.json({ limit: BODY_SIZE_LIMIT }));
@@ -159,6 +159,9 @@ async function initDatabase() {
     CREATE INDEX IF NOT EXISTS idx_book_alignments ON alignments(book_id);
     CREATE INDEX IF NOT EXISTS idx_segment_index ON alignments(book_id, segment_index);
   `);
+
+  await db.exec('CREATE INDEX IF NOT EXISTS idx_books_sort_order ON books(sort_order)');
+await db.exec('CREATE INDEX IF NOT EXISTS idx_books_series ON books(series_id, series_order)');
 
   // Check if series columns exist and add them if they don't
   try {
@@ -774,17 +777,90 @@ app.post('/api/config/library-path', async (req, res) => {
 
 
 // ✅ OPTIMIZATION: Don't send cover_data by default (it's huge!)
+// ✅ OPTIMIZATION: Don't send cover_data by default (it's huge!)
 app.get('/api/books', async (req, res) => {
   try {
     const books = await db.all(`
-      SELECT * FROM books 
+      SELECT id, folder, title, author, epub_path, srt_path, audio_path, 
+             last_position, match_start_element, match_start_segment,
+             bookmark_segment, bookmark_time, sort_order, created_at,
+             series_id, series_order
+      FROM books 
       ORDER BY sort_order ASC, title ASC
     `);
     
-    // Set cache headers
+    // Set cache headers - cache for 5 minutes
+    res.set('Cache-Control', 'public, max-age=300');
     res.json(books);
   } catch (err) {
     errorResponse(res, `Failed to fetch books: ${err.message}`);
+  }
+});
+
+app.get('/api/books/:id/cover', async (req, res) => {
+  try {
+    const book = await db.get('SELECT cover_data FROM books WHERE id = ?', req.params.id);
+    if (!book || !book.cover_data) {
+      return errorResponse(res, 'Book not found', 404);
+    }
+    
+    // Extract mime type and data from base64 string
+    const matches = book.cover_data.match(/^data:([^;]+);base64,(.+)$/);
+    if (!matches) {
+      return errorResponse(res, 'Invalid cover data', 500);
+    }
+    
+    const mimeType = matches[1];
+    const base64Data = matches[2];
+    const imageBuffer = Buffer.from(base64Data, 'base64');
+    
+    // ✅ STRONG CACHE HEADERS - browser will cache the image file itself
+    res.set({
+      'Content-Type': mimeType,
+      'Cache-Control': 'public, max-age=31536000, immutable',
+      'Expires': new Date(Date.now() + 31536000000).toUTCString(),
+      'ETag': `"book-${req.params.id}-${imageBuffer.length}"`
+    });
+    
+    res.send(imageBuffer);
+  } catch (err) {
+    errorResponse(res, `Failed to fetch cover: ${err.message}`);
+  }
+});
+
+// Replace the /api/series/:id/cover endpoint (around line 695)
+app.get('/api/series/:id/cover', async (req, res) => {
+  try {
+    const series = await db.get('SELECT cover_book_id FROM series WHERE id = ?', req.params.id);
+    if (!series || !series.cover_book_id) {
+      return errorResponse(res, 'Series or cover not found', 404);
+    }
+    
+    const book = await db.get('SELECT cover_data FROM books WHERE id = ?', series.cover_book_id);
+    if (!book || !book.cover_data) {
+      return errorResponse(res, 'Cover not found', 404);
+    }
+    
+    // Extract mime type and data from base64 string
+    const matches = book.cover_data.match(/^data:([^;]+);base64,(.+)$/);
+    if (!matches) {
+      return errorResponse(res, 'Invalid cover data', 500);
+    }
+    
+    const mimeType = matches[1];
+    const base64Data = matches[2];
+    const imageBuffer = Buffer.from(base64Data, 'base64');
+    
+    res.set({
+      'Content-Type': mimeType,
+      'Cache-Control': 'public, max-age=31536000, immutable',
+      'Expires': new Date(Date.now() + 31536000000).toUTCString(),
+      'ETag': `"series-${req.params.id}-${imageBuffer.length}"`
+    });
+    
+    res.send(imageBuffer);
+  } catch (err) {
+    errorResponse(res, `Failed to fetch series cover: ${err.message}`);
   }
 });
 
@@ -1106,49 +1182,19 @@ app.post('/api/scan', async (req, res) => {
 app.get('/api/series', async (req, res) => {
   try {
     const series = await db.all(`
-      SELECT s.*, 
-             COUNT(b.id) as book_count,
-             b.cover_data as cover
+      SELECT s.id, s.name, s.cover_book_id, s.sort_order, s.created_at,
+             COUNT(b.id) as book_count
       FROM series s
       LEFT JOIN books b ON b.series_id = s.id
-      LEFT JOIN books cover_book ON cover_book.id = s.cover_book_id
       GROUP BY s.id
       ORDER BY s.sort_order ASC, s.name ASC
     `);
     
-    // Get cover from cover_book_id
-    for (const s of series) {
-      if (s.cover_book_id) {
-        const coverBook = await db.get('SELECT cover_data FROM books WHERE id = ?', s.cover_book_id);
-        s.cover = coverBook?.cover_data || null;
-      }
-    }
-    
+    // Set cache headers
+    res.set('Cache-Control', 'public, max-age=300'); // 5 min
     res.json(series);
   } catch (err) {
     errorResponse(res, `Failed to fetch series: ${err.message}`);
-  }
-});
-
-app.post('/api/series', async (req, res) => {
-  try {
-    const { name, coverBookId } = req.body;
-    
-    if (!name) {
-      return errorResponse(res, 'Series name is required', 400);
-    }
-    
-    const maxSort = await db.get('SELECT MAX(sort_order) as max FROM series');
-    const sortOrder = (maxSort?.max || 0) + 1;
-    
-    const result = await db.run(
-      'INSERT INTO series (name, cover_book_id, sort_order) VALUES (?, ?, ?)',
-      [name, coverBookId || null, sortOrder]
-    );
-    
-    res.json({ success: true, id: result.lastID });
-  } catch (err) {
-    errorResponse(res, `Failed to create series: ${err.message}`);
   }
 });
 

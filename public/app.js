@@ -77,6 +77,10 @@ const BATCH_SIZE = 500;
 // ============================================
 // STORAGE MANAGER UTILITY
 // ============================================
+// Update your StorageManager to handle large data better
+// ============================================
+// STORAGE MANAGER UTILITY - COMPLETE VERSION
+// ============================================
 const StorageManager = {
   /**
    * Safely get item from sessionStorage
@@ -94,19 +98,62 @@ const StorageManager = {
   },
 
   /**
-   * Safely set item in sessionStorage with automatic cleanup on quota exceeded
+   * Safely set item in sessionStorage with size checking
    * @param {string} key - Storage key
-   * @param {any} value - Value to store (will be JSON stringified)
+   * @param {any} value - Value to store
+   * @param {number} maxSizeKB - Maximum size in KB (default: 200KB)
    * @returns {boolean} Success status
    */
-  set(key, value) {
+  set(key, value, maxSizeKB = 200) {
     try {
-      sessionStorage.setItem(key, JSON.stringify(value));
+      const jsonString = JSON.stringify(value);
+      const sizeKB = new Blob([jsonString]).size / 1024;
+      
+      // If data is too large, don't cache it
+      if (sizeKB > maxSizeKB) {
+        console.log(`⚠️ Not caching ${key}: ${sizeKB.toFixed(2)}KB exceeds ${maxSizeKB}KB limit`);
+        
+        // For cachedBooks, remove cover_data before caching
+        if (key === 'cachedBooks' && Array.isArray(value)) {
+          const booksWithoutCovers = value.map(({ cover_data, ...book }) => book);
+          const smallJson = JSON.stringify(booksWithoutCovers);
+          const smallSizeKB = new Blob([smallJson]).size / 1024;
+          
+          if (smallSizeKB <= maxSizeKB) {
+            sessionStorage.setItem(key, smallJson);
+            console.log(`✅ Cached ${key} without covers: ${smallSizeKB.toFixed(2)}KB`);
+            return true;
+          }
+        }
+        
+        // For cachedSeries, remove cover property
+        if (key === 'cachedSeries' && Array.isArray(value)) {
+          const seriesWithoutCovers = value.map(({ cover, ...series }) => series);
+          const smallJson = JSON.stringify(seriesWithoutCovers);
+          const smallSizeKB = new Blob([smallJson]).size / 1024;
+          
+          if (smallSizeKB <= maxSizeKB) {
+            sessionStorage.setItem(key, smallJson);
+            console.log(`✅ Cached ${key} without covers: ${smallSizeKB.toFixed(2)}KB`);
+            return true;
+          }
+        }
+        
+        return false;
+      }
+      
+      sessionStorage.setItem(key, jsonString);
       return true;
     } catch (err) {
       if (err.name === 'QuotaExceededError') {
-        console.warn('Storage quota exceeded, clearing old cache');
-        this.clear();
+        console.warn(`Quota exceeded for ${key}, clearing oldest items`);
+        
+        // Clear only specific keys, not everything
+        const keysToClear = ['cachedBooks', 'cachedSeries'];
+        keysToClear.forEach(k => {
+          if (k !== key) sessionStorage.removeItem(k);
+        });
+        
         try {
           sessionStorage.setItem(key, JSON.stringify(value));
           return true;
@@ -143,6 +190,24 @@ const StorageManager = {
   }
 };
 
+// ============================================
+// COVER CACHE MANAGER
+// ============================================
+const CoverCache = {
+  cache: new Map(),
+  
+  get(type, id) {
+    return this.cache.get(`${type}-${id}`);
+  },
+  
+  set(type, id, coverData) {
+    this.cache.set(`${type}-${id}`, coverData);
+  },
+  
+  has(type, id) {
+    return this.cache.has(`${type}-${id}`);
+  }
+};
 // ============================================
 // TEXT PROCESSING UTILITIES
 // ============================================
@@ -252,17 +317,18 @@ const SeriesCard = ({ series, onOpenBook, onShowBooks, onEdit, onDelete, index }
         onClick={() => onOpenBook(series.cover_book_id)}
       >
         <div className="relative w-full aspect-[3/4] bg-gradient-to-br from-blue-500 to-blue-600 dark:from-blue-600 dark:to-blue-700 rounded-xl overflow-hidden">
-          {series.cover ? (
-            <img 
-              src={series.cover} 
-              alt={`${series.name} cover`}
-              className="w-full h-full object-cover"
-            />
-          ) : (
-            <div className="w-full h-full flex items-center justify-center">
-              <Folder className="w-16 h-16 text-white opacity-50" />
-            </div>
-          )}
+          <img 
+  src={`/api/series/${series.id}/cover`}
+  alt={`${series.name} cover`}
+  className="w-full h-full object-cover"
+  onError={(e) => {
+    e.target.style.display = 'none';
+    e.target.nextElementSibling.style.display = 'flex';
+  }}
+/>
+<div className="w-full h-full flex items-center justify-center" style={{ display: 'none' }}>
+  <Folder className="w-16 h-16 text-white opacity-50" />
+</div>
           
           <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300">
             <div className="absolute bottom-0 left-0 right-0 p-4">
@@ -401,95 +467,101 @@ const DragSortableGrid = ({ items, onItemsReorder, onOpenBook, onShowSeriesBooks
     e.currentTarget.classList.remove('dragging');
   };
 
-  return (
-    <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-6">
-      {localItems.map((item, index) => {
-        const isDragging = draggingId === item.data.id && draggingType === item.type;
-        const isDragOver = dragOverId === item.data.id;
-        
-        if (item.type === 'series') {
-          return (
-            <div
-              key={`series-${item.data.id}`}
-              draggable={isLargeScreen}
-              onDragStart={(e) => handleDragStart(e, item)}
-              onDragOver={(e) => handleDragOver(e, item)}
-              onDragLeave={handleDragLeave}
-              onDrop={(e) => handleDrop(e, item)}
-              onDragEnd={handleDragEnd}
-              className={`
-                drag-sortable
-                ${isDragging ? 'dragging' : ''}
-                ${isDragOver ? 'drag-over' : ''}
-              `}
-            >
-              <SeriesCard
-                series={item.data}
-                index={index}
-                onOpenBook={(bookId) => {
-                  if (bookId) onOpenBook(bookId);
+ return (
+  <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-6">
+    {localItems.map((item, index) => {
+      const isDragging = draggingId === item.data.id && draggingType === item.type;
+      const isDragOver = dragOverId === item.data.id;
+      
+      if (item.type === 'series') {
+        return (
+          <div
+            key={`series-${item.data.id}`}
+            draggable={isLargeScreen}
+            onDragStart={(e) => handleDragStart(e, item)}
+            onDragOver={(e) => handleDragOver(e, item)}
+            onDragLeave={handleDragLeave}
+            onDrop={(e) => handleDrop(e, item)}
+            onDragEnd={handleDragEnd}
+            className={`
+              drag-sortable
+              ${isDragging ? 'dragging' : ''}
+              ${isDragOver ? 'drag-over' : ''}
+            `}
+          >
+            <SeriesCard
+              series={item.data}
+              index={index}
+              onOpenBook={(bookId) => {
+                if (bookId) onOpenBook(bookId);
+              }}
+              onShowBooks={onShowSeriesBooks}
+              onEdit={onEditSeries}
+              onDelete={onDeleteSeries}
+              isLargeScreen={isLargeScreen}
+            />
+          </div>
+        );
+      } else {
+        return (
+          <div
+            key={`book-${item.data.id}`}
+            draggable={isLargeScreen}
+            onDragStart={(e) => handleDragStart(e, item)}
+            onDragOver={(e) => handleDragOver(e, item)}
+            onDragLeave={handleDragLeave}
+            onDrop={(e) => handleDrop(e, item)}
+            onDragEnd={handleDragEnd}
+            className={`
+              drag-sortable bg-white dark:bg-stone-800 rounded-xl cursor-pointer shadow-sm hover:shadow-md transition-all duration-300 border border-stone-200 dark:border-stone-700 hover:border-red-300 dark:hover:border-red-400 group relative
+              ${isDragging ? 'dragging' : ''}
+              ${isDragOver ? 'drag-over' : ''}
+            `}
+            onClick={() => onOpenBook(item.data.id)}
+          >
+            <div className="relative w-full aspect-[3/4] bg-gradient-to-br from-red-500 to-red-600 dark:from-red-600 dark:to-red-700 rounded-xl overflow-hidden">
+              <img 
+                src={`/api/books/${item.data.id}/cover`}
+                alt={`${item.data.title} cover`}
+                className="w-full h-full object-cover"
+                loading="lazy"
+                onError={(e) => {
+                  e.target.style.display = 'none';
+                  e.target.nextElementSibling.style.display = 'flex';
                 }}
-                onShowBooks={onShowSeriesBooks}
-                onEdit={onEditSeries}
-                onDelete={onDeleteSeries}
-                isLargeScreen={isLargeScreen}
               />
-            </div>
-          );
-        } else {
-          return (
-            <div
-              key={`book-${item.data.id}`}
-              draggable={isLargeScreen}
-              onDragStart={(e) => handleDragStart(e, item)}
-              onDragOver={(e) => handleDragOver(e, item)}
-              onDragLeave={handleDragLeave}
-              onDrop={(e) => handleDrop(e, item)}
-              onDragEnd={handleDragEnd}
-              className={`
-                drag-sortable bg-white dark:bg-stone-800 rounded-xl cursor-pointer shadow-sm hover:shadow-md transition-all duration-300 border border-stone-200 dark:border-stone-700 hover:border-red-300 dark:hover:border-red-400 group relative
-                ${isDragging ? 'dragging' : ''}
-                ${isDragOver ? 'drag-over' : ''}
-              `}
-              onClick={() => onOpenBook(item.data.id)}
-            >
-              <div className="relative w-full aspect-[3/4] bg-gradient-to-br from-red-500 to-red-600 dark:from-red-600 dark:to-red-700 rounded-xl overflow-hidden">
-                {item.data.cover_data ? (
-                  <img 
-                    src={item.data.cover_data} 
-                    alt={`${item.data.title} cover`}
-                    className="w-full h-full object-cover"
-                    loading="lazy"
-                  />
-                ) : (
-                  <div className="w-full h-full flex items-center justify-center">
-                    <BookOpen className="w-12 h-12 text-white opacity-50" />
-                  </div>
-                )}
-                
-                <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300">
-                  <div className="absolute bottom-0 left-0 right-0 p-4">
-                    <h3 className="text-white font-semibold text-sm leading-tight mb-1 line-clamp-2">
-                      {item.data.title}
-                    </h3>
-                    <p className="text-stone-200 text-xs line-clamp-1">
-                      {item.data.author}
-                    </p>
-                  </div>
-                </div>
-                
-                
+              <div className="w-full h-full flex items-center justify-center" style={{ display: 'none' }}>
+                <BookOpen className="w-12 h-12 text-white opacity-50" />
               </div>
               
-            
+              <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300">
+                <div className="absolute bottom-0 left-0 right-0 p-4">
+                  <h3 className="text-white font-semibold text-sm leading-tight mb-1 line-clamp-2">
+                    {item.data.title}
+                  </h3>
+                  <p className="text-stone-200 text-xs line-clamp-1">
+                    {item.data.author}
+                  </p>
+                </div>
+              </div>
             </div>
-          );
-        }
-      })}
-    </div>
-  );
+          </div>
+        );
+      }
+    })}
+  </div>
+);
 };
 
+const BookSkeleton = () => (
+  <div className="bg-white dark:bg-stone-800 rounded-xl shadow-sm border border-stone-200 dark:border-stone-700 animate-pulse">
+    <div className="relative w-full aspect-[3/4] bg-stone-200 dark:bg-stone-700 rounded-xl" />
+    <div className="p-3">
+      <div className="h-4 bg-stone-200 dark:bg-stone-700 rounded mb-2" />
+      <div className="h-3 bg-stone-200 dark:bg-stone-700 rounded w-2/3" />
+    </div>
+  </div>
+);
 
 // ============================================
 // MAIN READER COMPONENT
@@ -573,10 +645,24 @@ const [viewingSeriesBooks, setViewingSeriesBooks] = useState(null);
 
 useEffect(() => {
   const loadSeries = async () => {
+    const cachedSeries = StorageManager.get('cachedSeries');
+    const isCacheValid = StorageManager.isValid('cachedSeriesTimestamp');
+    
+    if (cachedSeries && isCacheValid) {
+      console.log('📚 Loading series from cache');
+      setSeries(cachedSeries);
+    }
+    
     try {
       const response = await fetch('/api/series');
       const data = await response.json();
+      
+      StorageManager.set('cachedSeries', data);
+      StorageManager.set('cachedSeriesTimestamp', Date.now());
+      
       setSeries(data);
+      
+      console.log('✅ Series metadata loaded');
     } catch (err) {
       console.error('Error loading series:', err);
     }
@@ -586,7 +672,19 @@ useEffect(() => {
     loadSeries();
   }
 }, [booksLoaded]);
-  
+
+useEffect(() => {
+  if (currentBook) {
+    document.body.classList.add('reader-open');
+    document.documentElement.classList.add('reader-open');
+    document.getElementById('root').classList.add('reader-open');
+  } else {
+    document.body.classList.remove('reader-open');
+    document.documentElement.classList.remove('reader-open');
+    document.getElementById('root').classList.remove('reader-open');
+  }
+}, [currentBook]);
+
   // Apply reader-open class when book is loaded
   useEffect(() => {
     if (currentBook) {
@@ -600,38 +698,125 @@ useEffect(() => {
     }
   }, [currentBook]);
 
-  // Load books with caching
-  useEffect(() => {
-    const loadBooks = async () => {
-      const cachedBooks = StorageManager.get('cachedBooks');
-      const isCacheValid = StorageManager.isValid('cachedBooksTimestamp');
-      
-      if (cachedBooks && isCacheValid) {
-        console.log('📚 Loading books from cache');
-        setBooks(cachedBooks);
-        setBooksLoaded(true);
-      }
-      
-      try {
-        console.log('🔄 Fetching fresh books data from server');
-        const response = await fetch('/api/books');
-        const freshBooks = await response.json();
-        setBooks(freshBooks);
-        setBooksLoaded(true);
-        
-        const booksMetadata = freshBooks.map(({ cover_data, ...book }) => book);
-        StorageManager.set('cachedBooks', booksMetadata);
-        StorageManager.set('cachedBooksTimestamp', Date.now());
-      } catch (err) {
-        console.error('Error loading books:', err);
-        if (!cachedBooks) {
-          setBooksLoaded(true);
-        }
-      }
-    };
+useEffect(() => {
+  const loadBooks = async () => {
+    const cachedBooks = StorageManager.get('cachedBooks');
+    const isCacheValid = StorageManager.isValid('cachedBooksTimestamp');
     
-    loadBooks();
-  }, []);
+    if (cachedBooks && isCacheValid) {
+      console.log('📚 Loading books from cache');
+      setBooks(cachedBooks);
+      setBooksLoaded(true);
+    }
+    
+    try {
+      const response = await fetch('/api/books');
+      const freshBooks = await response.json();
+      
+      StorageManager.set('cachedBooks', freshBooks);
+      StorageManager.set('cachedBooksTimestamp', Date.now());
+      
+      setBooks(freshBooks);
+      setBooksLoaded(true);
+      
+      console.log('✅ Books metadata loaded');
+    } catch (err) {
+      console.error('Error loading books:', err);
+      if (!cachedBooks) setBooksLoaded(true);
+    }
+  };
+  
+  loadBooks();
+}, []);
+
+const loadCoversForItems = async (items, setCoverCallback) => {
+  // Filter items that need covers
+  const itemsNeedingCovers = items.filter(item => {
+    const key = item.type === 'series' ? `series-${item.data.id}` : `book-${item.data.id}`;
+    return !CoverCache.has(item.type || 'book', item.data.id);
+  });
+  
+  if (itemsNeedingCovers.length === 0) {
+    // All covers in cache, apply them immediately
+    const updatedItems = items.map(item => {
+      const cached = CoverCache.get(item.type || 'book', item.data.id);
+      if (cached) {
+        return {
+          ...item,
+          data: { ...item.data, cover_data: cached }
+        };
+      }
+      return item;
+    });
+    
+    // Separate books and series
+    const books = updatedItems.filter(i => i.type === 'book').map(i => i.data);
+    const series = updatedItems.filter(i => i.type === 'series').map(i => i.data);
+    
+    if (books.length > 0) setCoverCallback('books', books);
+    if (series.length > 0) setCoverCallback('series', series);
+    return;
+  }
+  
+  console.log(`📸 Loading ${itemsNeedingCovers.length} covers...`);
+  
+  // Load in batches of 8
+  const batchSize = 8;
+  for (let i = 0; i < itemsNeedingCovers.length; i += batchSize) {
+    const batch = itemsNeedingCovers.slice(i, i + batchSize);
+    
+    const promises = batch.map(async (item) => {
+      try {
+        const type = item.type || 'book';
+        const endpoint = type === 'series' 
+          ? `/api/series/${item.data.id}/cover`
+          : `/api/books/${item.data.id}/cover`;
+        
+        const response = await fetch(endpoint);
+        if (!response.ok) return null;
+        
+        const data = await response.json();
+        
+        // Cache in memory
+        CoverCache.set(type, item.data.id, data.cover_data);
+        
+        return {
+          type,
+          id: item.data.id,
+          coverData: data.cover_data
+        };
+      } catch (err) {
+        console.error(`Error loading ${item.type} cover ${item.data.id}:`, err);
+        return null;
+      }
+    });
+    
+    const results = await Promise.all(promises);
+    
+    // Update state with this batch
+    const bookUpdates = results.filter(r => r && r.type === 'book');
+    const seriesUpdates = results.filter(r => r && r.type === 'series');
+    
+    if (bookUpdates.length > 0) {
+      setCoverCallback('books', prev => prev.map(b => {
+        const update = bookUpdates.find(u => u.id === b.id);
+        return update ? { ...b, cover_data: update.coverData } : b;
+      }));
+    }
+    
+    if (seriesUpdates.length > 0) {
+      setCoverCallback('series', prev => prev.map(s => {
+        const update = seriesUpdates.find(u => u.id === s.id);
+        return update ? { ...s, cover: update.coverData } : s;
+      }));
+    }
+  }
+  
+  console.log('✅ All covers loaded');
+};
+
+
+
 
   // Handle browser back button
   useEffect(() => {
@@ -847,18 +1032,21 @@ const SeriesBooksModal = ({ series, books, onClose, onSelectBook }) => {
                 className="bg-white dark:bg-stone-800 rounded-xl cursor-pointer shadow-sm hover:shadow-md transition-all duration-300 border border-stone-200 dark:border-stone-700 hover:border-red-300 dark:hover:border-red-400 group relative"
               >
                 <div className="relative w-full aspect-[3/4] bg-gradient-to-br from-red-500 to-red-600 dark:from-red-600 dark:to-red-700 rounded-xl overflow-hidden">
-                  {book.cover_data ? (
-                    <img 
-                      src={book.cover_data} 
-                      alt={`${book.title} cover`}
-                      className="w-full h-full object-cover"
-                      loading="lazy"
-                    />
-                  ) : (
-                    <div className="w-full h-full flex items-center justify-center">
-                      <BookOpen className="w-12 h-12 text-white opacity-50" />
-                    </div>
-                  )}
+                 
+                <img 
+  src={`/api/books/${book.id}/cover`}
+  alt={`${book.title} cover`}
+  className="w-full h-full object-cover"
+  loading="lazy"
+  onError={(e) => {
+    e.target.style.display = 'none';
+    e.target.nextElementSibling.style.display = 'flex';
+  }}
+/>
+<div className="w-full h-full flex items-center justify-center" style={{ display: 'none' }}>
+  <BookOpen className="w-12 h-12 text-white opacity-50" />
+</div>
+              
                   
                   <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300">
                     <div className="absolute bottom-0 left-0 right-0 p-4">
@@ -2120,6 +2308,8 @@ const handleTimeUpdate = () => {
     return tempDiv.innerHTML;
   };
 
+  
+
   // ============================================
   // RENDER
   // ============================================
@@ -2254,21 +2444,20 @@ if (!currentBook) {
           </div>
         )}
         
-        {!booksLoaded ? (
-          <div className="text-center py-12">
-            <div className="mb-4">
-              <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-red-500 mx-auto"></div>
-            </div>
-            <p className="text-stone-600 dark:text-stone-400">Loading library...</p>
-          </div>
-        ) : gridItems.length === 0 ? (
-          <div className="text-center py-12">
-            <p className="text-stone-600 dark:text-stone-400 text-lg mb-4">No books found in library</p>
-            <p className="text-stone-500 dark:text-stone-500 text-sm">
-              Current path: <span className="font-mono">{libraryPath}</span>
-            </p>
-          </div>
-        ) : (
+       {!booksLoaded ? (
+  <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-6">
+    {Array.from({ length: 10 }).map((_, i) => (
+      <BookSkeleton key={i} />
+    ))}
+  </div>
+) : gridItems.length === 0 ? (
+  <div className="text-center py-12">
+    <p className="text-stone-600 dark:text-stone-400 text-lg mb-4">No books found in library</p>
+    <p className="text-stone-500 dark:text-stone-500 text-sm">
+      Current path: <span className="font-mono">{libraryPath}</span>
+    </p>
+  </div>
+) : (
   <DragSortableGrid 
     items={gridItems}
     onItemsReorder={async (reorderedItems) => {
